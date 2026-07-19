@@ -313,9 +313,21 @@ async function startPolling() {
         pollErrors = 0; // Reset error counter on success
         for (const update of res.data.result) {
           lastUpdateId = update.update_id;
-          if (update.message && update.message.text && update.message.text.startsWith('/')) {
-            console.log('[OMEGA] Command received:', update.message.text);
-            await handleCommand(update.message.chat.id, update.message.text);
+          if (update.message && update.message.text) {
+            console.log('[OMEGA] Message received:', update.message.text);
+            if (update.message.text.startsWith('/')) {
+              await handleCommand(update.message.chat.id, update.message.text);
+            } else {
+              // Non-command message — try to route it
+              const agent = routeMessage(update.message.text);
+              const a = AGENTS[agent];
+              await sendMessage(update.message.chat.id,
+                '🎯 Routed to: ' + agent + '\n\n' +
+                'Capabilities: ' + a.caps.join(', ') + '\n' +
+                'Tools: ' + a.tools.join(', ') + '\n' +
+                'Approval needed: ' + (a.approval ? 'YES' : 'NO') + '\n\n' +
+                'Use /omega-help for commands');
+            }
           }
         }
       }
@@ -328,7 +340,7 @@ async function startPolling() {
       }
     }
 
-    // Always schedule next poll
+    // Always schedule next poll (even after errors)
     setTimeout(poll, 2000);
   }
 
