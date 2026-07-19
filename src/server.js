@@ -318,15 +318,73 @@ async function startPolling() {
             if (update.message.text.startsWith('/')) {
               await handleCommand(update.message.chat.id, update.message.text);
             } else {
-              // Non-command message — try to route it
+              // Non-command message — give a smart contextual response
               const agent = routeMessage(update.message.text);
               const a = AGENTS[agent];
-              await sendMessage(update.message.chat.id,
-                '🎯 Routed to: ' + agent + '\n\n' +
-                'Capabilities: ' + a.caps.join(', ') + '\n' +
-                'Tools: ' + a.tools.join(', ') + '\n' +
-                'Approval needed: ' + (a.approval ? 'YES' : 'NO') + '\n\n' +
-                'Use /omega-help for commands');
+              const lowerMsg = update.message.text.toLowerCase();
+              
+              // Build a contextual response based on what the user said
+              let response = a.icon + ' ' + agent.toUpperCase() + ' Agent here.\n\n';
+              
+              if (agent === 'dev') {
+                response += 'I can help with deployments, code generation, and monitoring.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute vercel.deploy dev\n';
+                response += '/omega-execute github.push dev\n';
+                response += '/omega-execute code.generate dev\n';
+              } else if (agent === 'finance') {
+                response += 'I can help with payments, budgets, and reports.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute payment.monitor finance\n';
+                response += '/omega-execute report.generate finance\n';
+                response += '/omega-execute budget.plan finance\n';
+              } else if (agent === 'marketing') {
+                response += 'I can help with content, campaigns, and analytics.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute content.create marketing\n';
+                response += '/omega-execute campaign.launch marketing\n';
+                response += '/omega-execute analytics.view marketing\n';
+              } else if (agent === 'strategy') {
+                response += 'I can help with business planning and market analysis.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute market.analyze strategy\n';
+                response += '/omega-execute swot.generate strategy\n';
+                response += '/omega-execute okr.create strategy\n';
+              } else if (agent === 'security') {
+                response += 'I can help with threat detection and compliance.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute security.audit security\n';
+                response += '/omega-execute secret.scan security\n';
+                response += '/omega-execute threat.detect security\n';
+              } else if (agent === 'support') {
+                response += 'I can help with customer tickets and FAQs.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute ticket.resolve support\n';
+                response += '/omega-execute faq.search support\n';
+              } else if (agent === 'sales') {
+                response += 'I can help with leads, proposals, and CRM.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute lead.generate sales\n';
+                response += '/omega-execute proposal.write sales\n';
+                response += '/omega-execute crm.update sales\n';
+              } else if (agent === 'operations') {
+                response += 'I can help with workflows and tasks.\n\n';
+                response += 'Try:\n';
+                response += '/omega-execute workflow.create operations\n';
+                response += '/omega-execute task.assign operations\n';
+              } else {
+                // Chief — general
+                response += 'I coordinate all 9 agents. Tell me what you need.\n\n';
+                response += 'Quick commands:\n';
+                response += '/omega-ai — System status\n';
+                response += '/omega-agents — List all agents\n';
+                response += '/omega-help — Full help\n\n';
+                response += 'Or type a keyword like:\n';
+                response += 'deploy, marketing, payment, security, content';
+              }
+              
+              response += '\n\nType /omega-help for all commands';
+              await sendMessage(update.message.chat.id, response);
             }
           }
         }
