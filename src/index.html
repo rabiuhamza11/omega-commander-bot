@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OMEGA Business Commander AI — Enterprise Operating System | Harz Digital Services</title>
+<meta name="description" content="Autonomous enterprise operating system with 9 AI executive agents, approval workflows, and multi-business management. Built by Harz Digital Services.">
+<meta property="og:title" content="OMEGA Business Commander AI">
+<meta property="og:description" content="9 AI executive agents. Approval workflows. Autonomous enterprise management.">
+<link rel="canonical" href="https://rabiuhamza11.github.io/harz-portfolio/omega-commander-ai.html">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#050508;--card:#0e0e16;--border:#1e1e2e;--accent:#7c3aed;--accent2:#00d4aa;--danger:#ef4444;--warn:#f59e0b;--text:#e8e8f0;--muted:#6b6b80}
+body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);padding:12px;max-width:600px;margin:0 auto}
+.header{text-align:center;padding:20px 0 16px}
+.header h1{font-size:1.4rem;background:linear-gradient(135deg,#7c3aed,#00d4aa);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header p{font-size:.7rem;color:var(--muted);margin-top:4px}
+.status-bar{display:flex;justify-content:space-around;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+.status-item{text-align:center}
+.status-item .val{font-size:1.2rem;font-weight:800}
+.status-item .lbl{font-size:.6rem;color:var(--muted);text-transform:uppercase}
+.section{margin:16px 0}
+.section-title{font-size:.7rem;color:var(--accent);text-transform:uppercase;letter-spacing:2px;margin-bottom:8px}
+.agent-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.agent-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;transition:all .2s;cursor:pointer}
+.agent-card:active{transform:scale(.97)}
+.agent-card .role{font-size:.75rem;font-weight:700;color:var(--accent)}
+.agent-card .icon{font-size:1.3rem;margin-bottom:4px}
+.agent-card .caps{font-size:.65rem;color:var(--muted);margin-top:4px;line-height:1.3}
+.agent-card .badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:.55rem;font-weight:700;margin-top:4px}
+.badge-active{background:rgba(0,212,170,.15);color:var(--accent2)}
+.badge-approval{background:rgba(124,58,237,.15);color:var(--accent)}
+.badge-auto{background:rgba(34,197,94,.15);color:#22c55e}
+.tool-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:6px}
+.tool-card .name{font-size:.75rem;font-weight:600;color:var(--text)}
+.tool-card .desc{font-size:.65rem;color:var(--muted)}
+.tool-card .risk{float:right;padding:2px 8px;border-radius:4px;font-size:.55rem;font-weight:700}
+.risk-low{background:rgba(34,197,94,.15);color:#22c55e}
+.risk-medium{background:rgba(245,158,11,.15);color:var(--warn)}
+.risk-high{background:rgba(239,68,68,.15);color:var(--danger)}
+.approval-flow{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.flow-step{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.7rem}
+.flow-step .time{color:var(--accent);font-weight:700;min-width:60px}
+.flow-step .desc{color:var(--muted)}
+.flow-line{width:2px;height:12px;background:var(--border);margin-left:7px}
+.test-area{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.test-area input,.test-area select{width:100%;padding:10px;background:#14141e;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.8rem;margin-bottom:8px}
+.test-area input:focus{border-color:var(--accent);outline:none}
+.test-btn{width:100%;padding:12px;background:linear-gradient(135deg,#7c3aed,#00d4aa);border:none;border-radius:10px;color:#fff;font-weight:700;cursor:pointer;font-size:.85rem}
+.test-btn:active{transform:scale(.97)}
+.result-box{background:#14141e;border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:.7rem;color:var(--accent2);white-space:pre-wrap;display:none;max-height:200px;overflow-y:auto}
+.result-box.active{display:block}
+.stat-row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:.75rem}
+.stat-row:last-child{border:none}
+.stat-row .val{font-weight:700;color:var(--accent2)}
+.footer{text-align:center;padding:20px 0;color:var(--muted);font-size:.6rem}
+.footer a{color:var(--accent2);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="header">
+<h1>🧙‍♂️ OMEGA Business Commander AI</h1>
+<p>v1.0.0 — Autonomous Enterprise Operating System</p>
+</div>
+
+<div class="status-bar">
+<div class="status-item"><div class="val" style="color:#22c55e" id="sysStatus">●</div><div class="lbl">System</div></div>
+<div class="status-item"><div class="val" style="color:var(--accent)" id="agentCount">9</div><div class="lbl">Agents</div></div>
+<div class="status-item"><div class="val" style="color:var(--warn)" id="toolCount">10</div><div class="lbl">Tools</div></div>
+<div class="status-item"><div class="val" style="color:var(--accent2)" id="approvalCount">0</div><div class="lbl">Pending</div></div>
+</div>
+
+<div class="section">
+<div class="section-title">🤖 Executive AI Agents (9)</div>
+<div class="agent-grid" id="agentGrid"></div>
+</div>
+
+<div class="section">
+<div class="section-title">🛠️ Pluggable Tools</div>
+<div id="toolList"></div>
+</div>
+
+<div class="section">
+<div class="section-title">🔐 Approval System Flow</div>
+<div class="approval-flow">
+<div class="flow-step"><span class="time">T+0</span><span class="desc">Send to owner (primary: Telegram)</span></div>
+<div class="flow-line"></div>
+<div class="flow-step"><span class="time">T+2min</span><span class="desc">Reminder on WhatsApp</span></div>
+<div class="flow-line"></div>
+<div class="flow-step"><span class="time">T+5min</span><span class="desc">Escalate to deputy approver</span></div>
+<div class="flow-line"></div>
+<div class="flow-step"><span class="time">T+10min</span><span class="desc">Mark expired, notify owner, do not execute</span></div>
+<div class="flow-line"></div>
+<div class="flow-step"><span class="time">T+30min</span><span class="desc">Page owner via SMS if time-sensitive</span></div>
+</div>
+</div>
+
+<div class="section">
+<div class="section-title">⚡ Smart Auto-Approve Rules</div>
+<div class="stat-row"><span>vercel.deploy (preview)</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>email.send (<10 recipients)</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>content.create</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>ticket.resolve</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>analytics.view</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>report.generate</span><span class="val" style="color:#22c55e">AUTO</span></div>
+<div class="stat-row"><span>vercel.deploy (production)</span><span class="val" style="color:var(--danger)">APPROVAL</span></div>
+<div class="stat-row"><span>github.push (main)</span><span class="val" style="color:var(--danger)">APPROVAL</span></div>
+<div class="stat-row"><span>payment.send</span><span class="val" style="color:var(--danger)">APPROVAL</span></div>
+<div class="stat-row"><span>secret.access</span><span class="val" style="color:var(--danger)">APPROVAL</span></div>
+</div>
+
+<div class="section">
+<div class="section-title">🧪 Test the Orchestrator</div>
+<div class="test-area">
+<select id="testAction">
+<option value="status">System Status</option>
+<option value="route">Route Message to Agent</option>
+<option value="list_agents">List All Agents</option>
+<option value="audit_log">View Audit Log</option>
+<option value="list_approvals">List Pending Approvals</option>
+</select>
+<input id="testInput" placeholder="Enter message to route (e.g. 'deploy to vercel')" style="display:none">
+<button class="test-btn" onclick="runTest()">⚡ Execute</button>
+<div class="result-box" id="testResult"></div>
+</div>
+</div>
+
+<div class="footer">
+<p>OMEGA Business Commander AI v1.0.0</p>
+<p>Harz Digital Services · RC 321424</p>
+<p><a href="https://github.com/rabiuhamza11/omega-commander-ai" target="_blank">📋 View Source on GitHub</a> · <a href="https://harz-portfolio-hub.vercel.app">Harz Ecosystem</a></p>
+</div>
+
+<script>
+var agents=[
+{role:'Chief',icon:'👔',caps:['Overall coordination','Strategy execution'],approval:false},
+{role:'Strategy',icon:'🎯',caps:['Business planning','Market analysis'],approval:true},
+{role:'Operations',icon:'⚙️',caps:['Workflow management','Process optimization'],approval:true},
+{role:'Finance',icon:'💰',caps:['Transaction monitoring','Reporting','Budget planning'],approval:true},
+{role:'Marketing',icon:'📈',caps:['Content creation','Campaign management','Analytics'],approval:true},
+{role:'Sales',icon:'🤝',caps:['Lead generation','Proposal writing','CRM'],approval:true},
+{role:'Support',icon:'🎧',caps:['Customer communication','Ticket resolution'],approval:false},
+{role:'Dev',icon:'👨‍💻',caps:['Code generation','Deployment','Monitoring'],approval:true},
+{role:'Security',icon:'🛡️',caps:['Threat detection','Compliance','Access control'],approval:true}
+];
+
+var tools=[
+{name:'vercel.deploy',desc:'Deploy GitHub repo to Vercel',risk:'high',approval:true},
+{name:'github.push',desc:'Push code to GitHub repository',risk:'high',approval:true},
+{name:'email.send',desc:'Send email via Gmail',risk:'medium',approval:false},
+{name:'content.create',desc:'Generate marketing content',risk:'low',approval:false},
+{name:'ticket.resolve',desc:'Resolve customer support ticket',risk:'low',approval:false},
+{name:'payment.monitor',desc:'Monitor payment transactions',risk:'medium',approval:true},
+{name:'security.audit',desc:'Run security audit on platforms',risk:'high',approval:true},
+{name:'market.analyze',desc:'Analyze market conditions',risk:'low',approval:false},
+{name:'lead.generate',desc:'Generate sales leads',risk:'low',approval:false},
+{name:'code.generate',desc:'Generate code from specification',risk:'medium',approval:true}
+];
+
+function renderAgents(){
+document.getElementById('agentGrid').innerHTML=agents.map(function(a){
+return '<div class="agent-card">'+
+'<div class="icon">'+a.icon+'</div>'+
+'<div class="role">'+a.role+'</div>'+
+'<div class="caps">'+a.caps.join(' • ')+'</div>'+
+(a.approval?'<span class="badge badge-approval">REQUIRES APPROVAL</span>':'<span class="badge badge-auto">AUTO-EXECUTE</span>')+
+'</div>';
+}).join('');
+}
+
+function renderTools(){
+document.getElementById('toolList').innerHTML=tools.map(function(t){
+return '<div class="tool-card">'+
+'<span class="risk risk-'+t.risk+'">'+t.risk.toUpperCase()+'</span>'+
+'<div class="name">'+t.name+'</div>'+
+'<div class="desc">'+t.desc+'</div>'+
+(t.approval?'<span style="font-size:.55rem;color:var(--danger)">⚠ Approval required</span>':'<span style="font-size:.55rem;color:#22c55e">✓ Auto-approved</span>')+
+'</div>';
+}).join('');
+}
+
+document.getElementById('testAction').addEventListener('change',function(){
+document.getElementById('testInput').style.display=this.value==='route'?'block':'none';
+});
+
+async function runTest(){
+var action=document.getElementById('testAction').value;
+var input=document.getElementById('testInput').value;
+var resultBox=document.getElementById('testResult');
+resultBox.classList.add('active');
+resultBox.textContent='Loading...';
+
+var payload={action:action};
+if(action==='route'&&input){payload.message=input;}
+
+try{
+var res=await fetch('https://superagent-2286fb2f.base44.app/functions/omegaCommander',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify(payload)
+});
+var data=await res.json();
+resultBox.textContent=JSON.stringify(data,null,2);
+}catch(e){
+resultBox.textContent='Error: '+e.message;
+}
+}
+
+renderAgents();
+renderTools();
+
+// Load live status
+fetch('https://superagent-2286fb2f.base44.app/functions/omegaCommander',{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({action:'status'})
+}).then(function(r){return r.json()}).then(function(d){
+if(d.status==='operational'){
+document.getElementById('sysStatus').textContent='●';
+document.getElementById('sysStatus').style.color='#22c55e';
+}
+}).catch(function(){});
+</script>
+</body>
+</html>
