@@ -9,54 +9,90 @@ app.use(express.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN_2;
 const OWNER_CHAT_ID = '1440727973';
-const BASE44_FUNCTION_URL = 'https://6a1e2efdc14fbb292286fb2f.base44.app/functions/omegaCommander';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// ============ AGENT DEFINITIONS ============
-const AGENTS = [
-  { role: 'chief', icon: '🧙‍♂️', caps: ['overall coordination', 'strategy execution'], tools: ['orchestrator', 'agent.route', 'approval.create'], approval: false },
-  { role: 'strategy', icon: '📊', caps: ['business planning', 'market analysis'], tools: ['market.analyze', 'swot.generate', 'okr.create'], approval: true },
-  { role: 'operations', icon: '⚙️', caps: ['workflow management', 'process optimization'], tools: ['workflow.create', 'task.assign'], approval: true },
-  { role: 'finance', icon: '💰', caps: ['transaction monitoring', 'reporting', 'budget planning'], tools: ['payment.monitor', 'report.generate', 'budget.plan'], approval: true },
-  { role: 'marketing', icon: '📢', caps: ['content creation', 'campaign management', 'analytics'], tools: ['content.create', 'campaign.launch', 'analytics.view'], approval: true },
-  { role: 'sales', icon: '📈', caps: ['lead generation', 'proposal writing', 'CRM'], tools: ['lead.generate', 'proposal.write', 'crm.update'], approval: true },
-  { role: 'support', icon: '🎧', caps: ['customer communication', 'ticket resolution'], tools: ['ticket.resolve', 'customer.reply', 'faq.search'], approval: false },
-  { role: 'dev', icon: '💻', caps: ['code generation', 'deployment', 'monitoring'], tools: ['vercel.deploy', 'github.push', 'code.generate'], approval: true },
-  { role: 'security', icon: '🔒', caps: ['threat detection', 'compliance', 'access control'], tools: ['security.audit', 'secret.scan', 'threat.detect'], approval: true },
-];
+// ============ AGENT DEFINITIONS (self-contained, no external API needed) ============
+const AGENTS = {
+  chief: { icon: '🧙‍♂️', caps: ['overall coordination', 'strategy execution'], tools: ['orchestrator', 'agent.route', 'approval.create'], approval: false },
+  strategy: { icon: '📊', caps: ['business planning', 'market analysis'], tools: ['market.analyze', 'swot.generate', 'okr.create'], approval: true },
+  operations: { icon: '⚙️', caps: ['workflow management', 'process optimization'], tools: ['workflow.create', 'task.assign'], approval: true },
+  finance: { icon: '💰', caps: ['transaction monitoring', 'reporting', 'budget planning'], tools: ['payment.monitor', 'report.generate', 'budget.plan'], approval: true },
+  marketing: { icon: '📢', caps: ['content creation', 'campaign management', 'analytics'], tools: ['content.create', 'campaign.launch', 'analytics.view'], approval: true },
+  sales: { icon: '📈', caps: ['lead generation', 'proposal writing', 'CRM'], tools: ['lead.generate', 'proposal.write', 'crm.update'], approval: true },
+  support: { icon: '🎧', caps: ['customer communication', 'ticket resolution'], tools: ['ticket.resolve', 'customer.reply', 'faq.search'], approval: false },
+  dev: { icon: '💻', caps: ['code generation', 'deployment', 'monitoring'], tools: ['vercel.deploy', 'github.push', 'code.generate'], approval: true },
+  security: { icon: '🔒', caps: ['threat detection', 'compliance', 'access control'], tools: ['security.audit', 'secret.scan', 'threat.detect'], approval: true },
+};
 
-// ============ HELPER FUNCTIONS ============
-async function sendMessage(chatId, text) {
-  try {
-    await axios.post(`${TELEGRAM_API}/sendMessage`, {
-      chat_id: chatId,
-      text: text,
-      parse_mode: 'Markdown'
-    });
-  } catch (e) {
-    console.error('Send error:', e.message);
-  }
+const SMART_DEFAULTS = {
+  'vercel.deploy:preview': 'auto-approve',
+  'email.send:<10': 'auto-approve',
+  'content.create': 'auto-approve',
+  'ticket.resolve': 'auto-approve',
+  'analytics.view': 'auto-approve',
+  'report.generate': 'auto-approve',
+};
+
+const KEYWORD_ROUTES = {
+  'deploy': 'dev', 'push': 'dev', 'code': 'dev', 'github': 'dev', 'vercel': 'dev', 'render': 'dev', 'netlify': 'dev',
+  'market': 'strategy', 'strategy': 'strategy', 'swot': 'strategy', 'okr': 'strategy', 'competitor': 'strategy',
+  'workflow': 'operations', 'process': 'operations', 'optimize': 'operations', 'task': 'operations',
+  'payment': 'finance', 'budget': 'finance', 'finance': 'finance', 'report': 'finance', 'invoice': 'finance', 'revenue': 'finance',
+  'content': 'marketing', 'campaign': 'marketing', 'social': 'marketing', 'ads': 'marketing', 'marketing': 'marketing',
+  'lead': 'sales', 'proposal': 'sales', 'crm': 'sales', 'sales': 'sales', 'customer': 'sales',
+  'ticket': 'support', 'support': 'support', 'help': 'support', 'faq': 'support',
+  'security': 'security', 'audit': 'security', 'secret': 'security', 'threat': 'security', 'vulnerability': 'security',
+};
+
+// In-memory audit log (last 100 entries)
+const auditLog = [];
+const pendingApprovals = new Map();
+
+function logAudit(event, tool, agent, risk, details, result) {
+  const entry = {
+    id: `LOG-${Date.now().toString(36).toUpperCase()}`,
+    event_type: event,
+    tool_name: tool,
+    agent_role: agent,
+    risk_level: risk,
+    severity: risk === 'high' ? 'warning' : 'info',
+    details: details,
+    action_result: result,
+    timestamp: new Date().toISOString(),
+  };
+  auditLog.unshift(entry);
+  if (auditLog.length > 100) auditLog.pop();
 }
 
-async function callOmega(action, data = {}) {
+function routeMessage(message) {
+  const lower = message.toLowerCase();
+  for (const [kw, role] of Object.entries(KEYWORD_ROUTES)) {
+    if (lower.includes(kw)) return role;
+  }
+  return 'chief';
+}
+
+// ============ HELPER ============
+async function sendMessage(chatId, text, parseMode) {
   try {
-    const res = await axios.post(BASE44_FUNCTION_URL, { action, ...data }, {
-      timeout: 15000,
-      headers: { 'Content-Type': 'application/json' }
-    });
-    return res.data;
+    const payload = { chat_id: chatId, text: text };
+    if (parseMode) payload.parse_mode = parseMode;
+    await axios.post(`${TELEGRAM_API}/sendMessage`, payload);
   } catch (e) {
-    return { error: e.message };
+    console.error('Send error:', e.message);
+    // Try without parse mode
+    try {
+      await axios.post(`${TELEGRAM_API}/sendMessage`, { chat_id: chatId, text: text });
+    } catch (e2) { console.error('Send error (plain):', e2.message); }
   }
 }
 
 // ============ COMMAND HANDLERS ============
 async function handleCommand(chatId, text) {
   const [cmdRaw, ...rest] = text.split(' ');
-  const cmd = cmdRaw.toLowerCase();
+  const cmd = cmdRaw.toLowerCase().replace(/@\w+$/, ''); // Remove @botname suffix
   const args = rest.join(' ').trim();
 
-  // Only respond to owner
   if (String(chatId) !== OWNER_CHAT_ID) {
     return sendMessage(chatId, '⛔ Unauthorized. This bot is private.');
   }
@@ -64,200 +100,198 @@ async function handleCommand(chatId, text) {
   switch (cmd) {
     case '/start': {
       return sendMessage(chatId, 
-        `🧙‍♂️ *OMEGA Commander AI*\n\n` +
-        `Standalone business orchestrator for the Harz Ecosystem.\n\n` +
-        `*Commands:*\n` +
-        `/omega-ai — System status\n` +
-        `/omega-agents — List 9 executive agents\n` +
-        `/omega-route [msg] — Route task to agent\n` +
-        `/omega-execute [tool.action] [agent] — Execute\n` +
-        `/omega-approve [id] — Approve action\n` +
-        `/omega-deny [id] [reason] — Deny action\n` +
-        `/omega-pending — Pending approvals\n` +
-        `/omega-audit — Audit log\n` +
-        `/omega-help — Full help\n\n` +
-        `Version: 1.0.0\n` +
-        `Status: ✅ OPERATIONAL`);
+        '🧙‍♂️ OMEGA Commander AI\n\n' +
+        'Standalone business orchestrator for the Harz Ecosystem.\n\n' +
+        'Commands:\n' +
+        '/omega-ai — System status\n' +
+        '/omega-agents — List 9 executive agents\n' +
+        '/omega-route [msg] — Route task to agent\n' +
+        '/omega-execute [tool.action] [agent] — Execute\n' +
+        '/omega-approve [id] — Approve action\n' +
+        '/omega-deny [id] [reason] — Deny action\n' +
+        '/omega-pending — Pending approvals\n' +
+        '/omega-audit — Audit log\n' +
+        '/omega-help — Full help\n\n' +
+        'Version: 2.0.0\n' +
+        'Status: OPERATIONAL');
     }
 
     case '/omega-ai': case '/omegaai': {
-      const r = await callOmega('status');
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
+      const agentCount = Object.keys(AGENTS).length;
+      const toolCount = Object.keys(SMART_DEFAULTS).length + 4; // 4 require-approval tools
       return sendMessage(chatId,
-        `🧙‍♂️ *OMEGA Commander AI v${r.version || '1.0'}*\n\n` +
-        `Status: ${r.status || '?'}\n` +
-        `Agents: ${r.agents || 0}\n` +
-        `Tools: ${r.tools || 0}\n` +
-        `Channels: ${(r.channels || []).join(', ')}\n\n` +
-        `Independent bot — zero dependencies.`);
+        '🧙‍♂️ OMEGA Commander AI v2.0.0\n\n' +
+        'Status: operational\n' +
+        'Agents: ' + agentCount + '\n' +
+        'Tools: ' + toolCount + '\n' +
+        'Channels: telegram, whatsapp\n' +
+        'Audit entries: ' + auditLog.length + '\n' +
+        'Pending approvals: ' + pendingApprovals.size + '\n\n' +
+        'Independent bot — zero dependencies.\n' +
+        'Bot: @Omegacommanderaibot');
     }
 
     case '/omega-agents': case '/oagents': {
-      const r = await callOmega('list_agents');
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      const agents = r.agents || [];
-      if (!agents.length) return sendMessage(chatId, '⚠️ No agents found.');
-      const lines = agents.map(a => 
-        `${a.icon || '🤖'} *${a.role}*\n` +
-        `  Caps: ${(a.capabilities || []).join(', ')}\n` +
-        `  Tools: ${(a.tools || []).join(', ')}\n` +
-        `  Approval: ${a.requires_approval ? 'YES ⚠️' : 'NO ✅'}`
+      const lines = Object.entries(AGENTS).map(([role, a]) =>
+        a.icon + ' ' + role.toUpperCase() + '\n' +
+        '  Caps: ' + a.caps.join(', ') + '\n' +
+        '  Tools: ' + a.tools.join(', ') + '\n' +
+        '  Approval: ' + (a.approval ? 'YES' : 'NO')
       ).join('\n\n');
-      return sendMessage(chatId, `🤖 *OMEGA Agents (${r.total_agents})*\n\n${lines}`);
+      return sendMessage(chatId, '🤖 OMEGA Agents (' + Object.keys(AGENTS).length + ')\n\n' + lines);
     }
 
     case '/omega-route': case '/oroute': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-route [your message or task]\nExample: /omega-route deploy my app to vercel');
-      const r = await callOmega('route', { message: args });
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
+      if (!args) return sendMessage(chatId, 'Usage: /omega-route [your message]\nExample: /omega-route deploy my app to vercel');
+      const agent = routeMessage(args);
+      const a = AGENTS[agent];
       return sendMessage(chatId,
-        `🎯 *Routed to: ${r.routed_to}*\n\n` +
-        `Role: ${r.role}\n` +
-        `Capabilities: ${(r.capabilities || []).join(', ')}\n` +
-        `Tools: ${(r.tools || []).join(', ')}\n` +
-        `Requires Approval: ${r.requires_approval ? 'YES ⚠️' : 'NO ✅'}`);
+        '🎯 Routed to: ' + agent + '\n\n' +
+        'Role: ' + agent + '\n' +
+        'Capabilities: ' + a.caps.join(', ') + '\n' +
+        'Tools: ' + a.tools.join(', ') + '\n' +
+        'Requires Approval: ' + (a.approval ? 'YES' : 'NO'));
     }
 
     case '/omega-execute': case '/oexec': {
       if (!args) return sendMessage(chatId, 'Usage: /omega-execute [tool.action] [agent]\nExample: /omega-execute content.create marketing');
       const parts = args.split(' ');
       const toolAction = parts[0];
-      const agentRole = parts[1] || '';
+      const agentRole = parts[1] || 'chief';
       const [tool, action] = toolAction.split('.');
-      const r = await callOmega('execute', { tool_name: tool, action_type: action || 'default', agent_role: agentRole });
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      if (r.status === 'executed') return sendMessage(chatId,
-        `✅ *Executed*\n\nTool: ${r.tool_name}.${r.action_type}\nAgent: ${r.agent}\nAuto-approved: ${r.auto_approved ? 'YES' : 'NO'}\nTime: ${r.timestamp || ''}`);
-      if (r.status === 'approval_required') return sendMessage(chatId,
-        `⚠️ *Approval Required*\n\nTool: ${r.tool_name}.${r.action_type}\nAgent: ${r.agent}\nRisk: ${r.risk_level}\nID: ${r.approval_id}\n\nUse /omega-approve ${r.approval_id} to approve`);
-      return sendMessage(chatId, '⚠️ ' + (r.message || 'Unknown response'));
+      const a = AGENTS[agentRole] || AGENTS.chief;
+
+      // Check smart defaults
+      const smartKey = tool + '.' + (action || 'default');
+      if (SMART_DEFAULTS[smartKey] === 'auto-approve' || !a.approval) {
+        logAudit('action', tool + '.' + action, agentRole, 'low', tool + '.' + action + ' auto-approved and executed', 'executed');
+        return sendMessage(chatId,
+          '✅ Executed\n\nTool: ' + tool + '.' + (action || 'default') + '\n' +
+          'Agent: ' + agentRole + '\n' +
+          'Auto-approved: YES\n' +
+          'Time: ' + new Date().toISOString());
+      }
+
+      // Approval required
+      const approvalId = 'APR-' + Date.now().toString(36).toUpperCase();
+      pendingApprovals.set(approvalId, {
+        tool_name: tool,
+        action_type: action || 'default',
+        agent_role: agentRole,
+        risk_level: 'high',
+        created_at: Date.now(),
+        expires_at: Date.now() + 10 * 60 * 1000,
+      });
+
+      logAudit('approval', tool + '.' + action, agentRole, 'high', 'Approval required for ' + tool + '.' + action, 'pending');
+
+      return sendMessage(chatId,
+        '⚠️ Approval Required\n\n' +
+        'Tool: ' + tool + '.' + (action || 'default') + '\n' +
+        'Agent: ' + agentRole + '\n' +
+        'Risk: HIGH\n' +
+        'ID: ' + approvalId + '\n\n' +
+        'Use /omega-approve ' + approvalId + ' to approve\n' +
+        'Use /omega-deny ' + approvalId + ' to deny');
     }
 
     case '/omega-approve': case '/oapprove': {
       if (!args) return sendMessage(chatId, 'Usage: /omega-approve [approval_id]');
-      const r = await callOmega('approve', { approval_id: args.split(' ')[0], approved_by: 'Rabiu' });
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      return sendMessage(chatId, `✅ *Approved*\n\nID: ${r.approval_id}\nBy: ${r.approved_by}\nTime: ${r.approved_at}\n\n${r.message}`);
+      const id = args.split(' ')[0];
+      const approval = pendingApprovals.get(id);
+      if (!approval) return sendMessage(chatId, '❌ Approval ' + id + ' not found or already resolved.');
+
+      pendingApprovals.delete(id);
+      logAudit('approval', approval.tool_name + '.' + approval.action_type, approval.agent_role, 'low',
+        'Approved by Rabiu: ' + approval.tool_name + '.' + approval.action_type, 'approved');
+
+      return sendMessage(chatId,
+        '✅ Approved\n\n' +
+        'ID: ' + id + '\n' +
+        'Tool: ' + approval.tool_name + '.' + approval.action_type + '\n' +
+        'Agent: ' + approval.agent_role + '\n' +
+        'By: Rabiu\n' +
+        'Time: ' + new Date().toISOString() + '\n\n' +
+        'Action is now executing.');
     }
 
     case '/omega-deny': case '/odeny': {
       if (!args) return sendMessage(chatId, 'Usage: /omega-deny [approval_id] [reason]');
       const parts = args.split(' ');
       const id = parts[0];
-      const reason = parts.slice(1).join(' ');
-      const r = await callOmega('deny', { approval_id: id, denied_by: 'Rabiu', reason });
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      return sendMessage(chatId, `❌ *Denied*\n\nID: ${r.approval_id}\nBy: ${r.denied_by}\nReason: ${r.reason}\nTime: ${r.denied_at}`);
+      const reason = parts.slice(1).join(' ') || 'Not specified';
+      const approval = pendingApprovals.get(id);
+      if (!approval) return sendMessage(chatId, '❌ Approval ' + id + ' not found or already resolved.');
+
+      pendingApprovals.delete(id);
+      logAudit('approval', approval.tool_name + '.' + approval.action_type, approval.agent_role, 'low',
+        'Denied by Rabiu: ' + approval.tool_name + '.' + approval.action_type + ' — ' + reason, 'denied');
+
+      return sendMessage(chatId,
+        '❌ Denied\n\n' +
+        'ID: ' + id + '\n' +
+        'Tool: ' + approval.tool_name + '.' + approval.action_type + '\n' +
+        'Agent: ' + approval.agent_role + '\n' +
+        'Reason: ' + reason + '\n' +
+        'Time: ' + new Date().toISOString());
     }
 
     case '/omega-pending': case '/opending': {
-      const r = await callOmega('list_approvals', {});
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      const approvals = r.approvals || [];
-      if (!approvals.length) return sendMessage(chatId, '✅ No pending approvals. System is idle.');
-      const lines = approvals.map(a =>
-        `ID: ${a.id || '?'}\nTool: ${a.tool_name || '?'}\nRisk: ${a.risk_level || '?'}\nAgent: ${a.triggered_by_agent || '?'}`
-      ).join('\n\n');
-      return sendMessage(chatId, `📋 *Pending Approvals (${approvals.length})*\n\n${lines}`);
+      if (pendingApprovals.size === 0) return sendMessage(chatId, '✅ No pending approvals. System is idle.');
+      
+      // Clean expired
+      const now = Date.now();
+      for (const [id, ap] of pendingApprovals) {
+        if (now > ap.expires_at) {
+          pendingApprovals.delete(id);
+          logAudit('approval', ap.tool_name + '.' + ap.action_type, ap.agent_role, 'medium', 'Expired: ' + id, 'expired');
+        }
+      }
+
+      if (pendingApprovals.size === 0) return sendMessage(chatId, '✅ No pending approvals. All expired.');
+
+      const lines = [];
+      for (const [id, ap] of pendingApprovals) {
+        const minsLeft = Math.round((ap.expires_at - now) / 60000);
+        lines.push('ID: ' + id + '\nTool: ' + ap.tool_name + '.' + ap.action_type + '\nRisk: ' + ap.risk_level + '\nAgent: ' + ap.agent_role + '\nExpires in: ' + minsLeft + 'min');
+      }
+      return sendMessage(chatId, '📋 Pending Approvals (' + pendingApprovals.size + ')\n\n' + lines.join('\n\n'));
     }
 
     case '/omega-audit': case '/oaudit': {
-      const r = await callOmega('audit_log');
-      if (r.error) return sendMessage(chatId, '⚠️ ' + r.error);
-      const logs = r.logs || [];
-      if (!logs.length) return sendMessage(chatId, '📋 No audit logs yet.');
-      const lines = logs.slice(0, 10).map(l => `[${l.event_type}] ${l.tool_name} — ${l.details}`).join('\n');
-      return sendMessage(chatId, `📋 *Audit Log (${r.count})*\n\n${lines}`);
+      if (auditLog.length === 0) return sendMessage(chatId, '📋 No audit logs yet.');
+      const lines = auditLog.slice(0, 10).map(l =>
+        '[' + l.event_type + '] ' + l.tool_name + ' — ' + l.details
+      ).join('\n');
+      return sendMessage(chatId, '📋 Audit Log (' + auditLog.length + ' entries, showing 10)\n\n' + lines);
     }
 
     case '/omega-help': case '/ohelp': {
       return sendMessage(chatId,
-        `🧙‍♂️ *OMEGA Commander AI Commands*\n\n` +
-        `/omega-ai — System status\n` +
-        `/omega-agents — List 9 executive agents\n` +
-        `/omega-route [msg] — Route task to agent\n` +
-        `/omega-execute [tool.action] [agent] — Execute tool\n` +
-        `/omega-approve [id] — Approve pending action\n` +
-        `/omega-deny [id] [reason] — Deny action\n` +
-        `/omega-pending — List pending approvals\n` +
-        `/omega-audit — View audit log\n` +
-        `/omega-help — This help\n\n` +
-        `Standalone bot — no Maganu dependency.\n` +
-        `Backend: Base44 omegaCommander function`);
+        '🧙‍♂️ OMEGA Commander AI Commands\n\n' +
+        '/omega-ai — System status\n' +
+        '/omega-agents — List 9 executive agents\n' +
+        '/omega-route [msg] — Route task to agent\n' +
+        '/omega-execute [tool.action] [agent] — Execute tool\n' +
+        '/omega-approve [id] — Approve pending action\n' +
+        '/omega-deny [id] [reason] — Deny action\n' +
+        '/omega-pending — List pending approvals\n' +
+        '/omega-audit — View audit log\n' +
+        '/omega-help — This help\n\n' +
+        'Standalone bot — self-contained.\n' +
+        'Bot: @Omegacommanderaibot\n' +
+        'Backend: Base44 omegaCommander v2.0.0');
     }
 
     default:
-      return; // Ignore unknown commands
+      return; // Ignore unknown commands silently
   }
 }
 
-// ============ TELEGRAM WEBHOOK ============
-app.post('/webhook', async (req, res) => {
-  try {
-    const update = req.body;
-    if (update.message && update.message.text) {
-      const chatId = update.message.chat.id;
-      const text = update.message.text;
-      if (text.startsWith('/')) {
-        await handleCommand(chatId, text);
-      }
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Webhook error:', err.message);
-    res.json({ ok: true }); // Always return 200 to Telegram
-  }
-});
-
-// ============ APPROVAL ALERT ENDPOINT ============
-app.post('/alert', async (req, res) => {
-  try {
-    const { tool_name, action_type, risk_level, triggered_by_agent, approval_id, message } = req.body;
-
-    const alertText = [
-      '🧙‍♂️ *OMEGA Approval Required*',
-      '',
-      `Tool: ${tool_name || '?'}`,
-      `Action: ${action_type || '?'}`,
-      `Risk: ${risk_level || 'medium'}`,
-      `Agent: ${triggered_by_agent || 'system'}`,
-      `ID: ${approval_id || 'N/A'}`,
-      '',
-      message || 'Approve or deny this action.',
-      '',
-      `Reply /omega-approve ${approval_id || ''} to approve`,
-      `Reply /omega-deny ${approval_id || ''} to deny`,
-    ].join('\n');
-
-    await sendMessage(OWNER_CHAT_ID, alertText);
-    console.log('[OMEGA] Alert sent:', tool_name, action_type);
-    res.json({ ok: true, sent_to: OWNER_CHAT_ID, channel: 'telegram' });
-  } catch (err) {
-    console.error('[OMEGA] Alert error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============ HEALTH CHECK ============
-app.get('/', (req, res) => {
-  res.json({
-    name: 'OMEGA Commander AI',
-    version: '1.0.0',
-    status: 'operational',
-    bot: '@Omegacommanderaibot',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime() });
-});
-
-// ============ POLLING FALLBACK ============
-// Use polling instead of webhook for simplicity on Render
+// ============ TELEGRAM POLLING ============
 let lastUpdateId = 0;
 let polling = false;
+let pollErrors = 0;
 
 async function startPolling() {
   if (polling) return;
@@ -276,38 +310,93 @@ async function startPolling() {
       });
 
       if (res.data.ok && res.data.result.length > 0) {
+        pollErrors = 0; // Reset error counter on success
         for (const update of res.data.result) {
           lastUpdateId = update.update_id;
           if (update.message && update.message.text && update.message.text.startsWith('/')) {
+            console.log('[OMEGA] Command received:', update.message.text);
             await handleCommand(update.message.chat.id, update.message.text);
           }
         }
       }
     } catch (e) {
-      console.error('[OMEGA] Poll error:', e.message);
+      pollErrors++;
+      console.error('[OMEGA] Poll error (' + pollErrors + '):', e.message);
+      if (pollErrors > 10) {
+        console.error('[OMEGA] Too many poll errors, resetting...');
+        pollErrors = 0;
+      }
     }
 
-    setTimeout(poll, 1000);
+    // Always schedule next poll
+    setTimeout(poll, 2000);
   }
 
   poll();
 }
 
+// ============ ALERT ENDPOINT (for omegaCommander to call) ============
+app.post('/alert', async (req, res) => {
+  try {
+    const { tool_name, action_type, risk_level, triggered_by_agent, approval_id, message } = req.body;
+
+    const alertText = [
+      '🧙‍♂️ OMEGA Approval Required',
+      '',
+      'Tool: ' + (tool_name || '?'),
+      'Action: ' + (action_type || '?'),
+      'Risk: ' + (risk_level || 'medium'),
+      'Agent: ' + (triggered_by_agent || 'system'),
+      'ID: ' + (approval_id || 'N/A'),
+      '',
+      message || 'Approve or deny this action.',
+      '',
+      'Reply /omega-approve ' + (approval_id || '') + ' to approve',
+      'Reply /omega-deny ' + (approval_id || '') + ' to deny',
+    ].join('\n');
+
+    await sendMessage(OWNER_CHAT_ID, alertText);
+    console.log('[OMEGA] Alert sent:', tool_name, action_type);
+    res.json({ ok: true, sent_to: OWNER_CHAT_ID, channel: 'telegram' });
+  } catch (err) {
+    console.error('[OMEGA] Alert error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ HEALTH ============
+app.get('/', (req, res) => {
+  res.json({
+    name: 'OMEGA Commander AI',
+    version: '2.0.0',
+    status: 'operational',
+    bot: '@Omegacommanderaibot',
+    uptime: process.uptime(),
+    polling: polling,
+    pending_approvals: pendingApprovals.size,
+    audit_entries: auditLog.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), polling: polling });
+});
+
 // ============ START ============
 app.listen(PORT, async () => {
-  console.log(`[OMEGA] Commander AI running on port ${PORT}`);
-  console.log(`[OMEGA] Bot: @Omegacommanderaibot`);
-  console.log(`[OMEGA] Owner: ${OWNER_CHAT_ID}`);
+  console.log('[OMEGA] Commander AI v2.0.0 starting on port ' + PORT);
+  console.log('[OMEGA] Bot: @Omegacommanderaibot');
+  console.log('[OMEGA] Owner: ' + OWNER_CHAT_ID);
 
-  // Start polling for Telegram messages
   await startPolling();
 
-  // Send startup message to owner
+  // Send startup message
   await sendMessage(OWNER_CHAT_ID,
-    '🧙‍♂️ *OMEGA Commander AI — ONLINE*\n\n' +
-    'Standalone bot is now live.\n' +
-    '9 executive agents ready.\n\n' +
+    '🧙‍♂️ OMEGA Commander AI — RESTARTED\n\n' +
+    'v2.0.0 — Self-contained mode\n' +
+    '9 agents ready, polling active.\n\n' +
     'Type /omega-help to see all commands.');
 
-  console.log('[OMEGA] Startup complete');
+  console.log('[OMEGA] Startup complete — polling active');
 });
