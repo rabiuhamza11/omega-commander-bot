@@ -1,18 +1,17 @@
 {
-  "name": "omega-business-commander-ai",
+  "name": "omega-commander-ai",
   "version": "1.0.0",
-  "description": "Autonomous enterprise operating system for multi-business management — 9 AI executive agents, approval workflows, pluggable tools.",
-  "main": "src/index.html",
+  "description": "OMEGA Business Commander AI - Standalone Telegram Bot",
+  "main": "src/server.js",
   "scripts": {
-    "dev": "npx serve src -l 3000",
-    "build": "echo 'Static build — no compilation needed'",
-    "deploy": "vercel --prod"
+    "start": "node src/server.js"
   },
-  "keywords": ["ai", "enterprise", "os", "agents", "orchestrator", "approval", "autonomous"],
-  "author": "Rabiu Hamza Mohammed (Harz Digital Services, RC 321424)",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/rabiuhamza11/omega-commander-ai.git"
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

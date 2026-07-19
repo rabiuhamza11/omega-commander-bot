@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: omega-commander-ai
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN_2
+        sync: false
