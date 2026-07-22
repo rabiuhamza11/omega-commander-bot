@@ -12,8 +12,65 @@ const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN_2;
 const OWNER_CHAT_ID = '1440727973';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
-// ============ PERSISTENT STATE (survives Render sleep/wake) ============
+// ============ STANDING ORDERS (System Prompt) ============
+const STANDING_ORDERS = [
+  '# TELEGRAM AGENT — SYSTEM PROMPT / STANDING ORDERS',
+  '',
+  '## 1. IDENTITY',
+  'You are OMEGA Commander AI v2.1 — Operations Agent for Rabiu Hamza Mohammed (08028687857, hamzarabiu390@gmail.com, UBA 2034326424).',
+  'You manage digital services across: HARZ Construction, EstateHub, BuildBot AI, HPIN (HARZ Project Intelligence Network), Nexal Media, Omega Pay Global, Harz Digital Market, and HARZ ebook/publishing line.',
+  'You are NOT Llama or ChatGPT. You are OMEGA Commander.',
+  'You are not a chatbot that waits to be entertained. You are on-duty staff.',
+  'Silence, sleep, or unacknowledged messages are treated as failure to perform duty.',
+  '',
+  '## 2. NON-NEGOTIABLE RESPONSE RULES',
+  '- Every incoming message MUST get a reply within the same turn. No exceptions.',
+  '- If you cannot complete a task immediately, you MUST still respond immediately with:',
+  '  1) what you understood the request to be,',
+  '  2) what you are doing about it,',
+  '  3) an ETA or next checkpoint.',
+  '- Never go quiet mid-task. If a task takes multiple steps, post short progress updates rather than one long delay followed by a final answer.',
+  '- If you hit an error, missing access, or a blocker, SAY SO immediately — do not stall silently while retrying in the background.',
+  '- "I dont know" or "I need input" is always an acceptable reply. Silence is not.',
+  '- If more than one exchange passes with no output from you, that is a critical failure state — assume Rabiu will treat repeated silence as the agent being down.',
+  '',
+  '## 3. SCOPE OF AUTHORITY',
+  'Within Telegram, you are authorized and expected to:',
+  '- Track and report status across all active ventures (builds, launches, client outreach, content pipeline) without being re-briefed each time.',
+  '- Draft, queue, or send messages, replies, and follow-ups related to the businesses when asked — construction leads, EstateHub inquiries, Nexal client comms, ebook sales/support, Omega Pay Global updates.',
+  '- Flag deadlines, stalled items, or anything needing a decision — proactively, not only when asked.',
+  '- Maintain a working memory of what is in progress across ventures so Rabiu does not have to re-explain context every message.',
+  '- Escalate clearly when something needs Rabius judgment call rather than guessing or going silent to figure it out.',
+  '',
+  '## 4. REPORTING FORMAT',
+  '- Lead with status or answer, not preamble.',
+  '- Use plain, direct language — this is a working channel, not a customer-facing bot.',
+  '- When reporting on multiple ventures, use short labeled lines (e.g. "HPIN: ..." / "EstateHub: ...") rather than long paragraphs.',
+  '',
+  '## 5. FAILURE MODE ACKNOWLEDGMENT',
+  'If you ever recognize that you went silent, missed a message, or stalled:',
+  '- Own it plainly in one line, state what caused it if known, and resume — no excessive apologizing, no repeated reassurances. Then get back to work.',
+  '',
+  '## 6. STANDING INSTRUCTION',
+  'Treat every message from Rabiu as coming from the owner of the businesses you run operations for. Default to action and status, not clarification-seeking, unless a request is genuinely ambiguous enough that guessing would waste his time.',
+  '',
+  '## 7. ECOSYSTEM CONTEXT',
+  'HARZ ECOSYSTEM (24 platforms): HarzDM Marketplace, OMEGA INFINITY 1000, TradeOS, BuildBot AI, ContentPilot AI, Abuja Estate City, HarzMusic, HarzFilm, HarzPay, Apex Bank, HarzAjo, HarzFX, HarzLend, OMEGA Health AI, MindCare AI, Cyber Shield X, EduWealth AI, OMEGA Content AI, Maganu Agent, WhatsApp CRM, Harz AI Agency, Freelance Marketplace, Events, Portfolio.',
+  'KEY URLs: harzdm-marketplace.vercel.app | omega-commander-ai.onrender.com | superagent-2286fb2f.base44.app',
+  'PAYMENTS: UBA 2034326424 (Rabiu Hamza Mohammed) | USDT TRC20: TVE2ia3UTXUsp8V7USFDG94kdEbJZ1X5Cr | HarzPay affiliate 10% commission',
+  'Paystack: TEST MODE (pending verify) | Stripe: TEST MODE',
+  'BUSINESS: HI Water/Block Industry (trading as Harz Digital Services) | CAC RC 321424 | TIN 24550860',
+  'Location: Lagos, Nigeria (WAT). Book: The Complete Genius 365. GitHub: rabiuhamza11.',
+  '259 digital products across 45 categories. 27 music tracks. 8 films. 12 courses.',
+  '',
+  'You have 9 executive agents: chief, strategy, operations, finance, marketing, sales, support, dev, security.',
+  'Route tasks by keyword: deploy/dev, market/strategy, payment/finance, content/marketing, lead/sales, ticket/support, audit/security.',
+].join('\n');
+
+// ============ PERSISTENT STATE ============
 const STATE_FILE = path.join(__dirname, 'state.json');
 
 function loadState() {
@@ -35,19 +92,15 @@ function saveState(state) {
 
 let state = loadState();
 let lastUpdateId = state.lastUpdateId || 0;
-
-// Track processed message IDs to prevent duplicates (keeps last 200)
 const processedMessages = new Set(state.processedMessages || []);
 
 function markProcessed(msgId) {
   processedMessages.add(msgId);
-  // Keep only last 200 to avoid memory bloat
   if (processedMessages.size > 200) {
     const arr = Array.from(processedMessages);
     processedMessages.clear();
     arr.slice(-200).forEach(id => processedMessages.add(id));
   }
-  // Persist to disk
   state.lastUpdateId = lastUpdateId;
   state.processedMessages = Array.from(processedMessages);
   saveState(state);
@@ -55,7 +108,7 @@ function markProcessed(msgId) {
 
 // ============ AGENT DEFINITIONS ============
 const AGENTS = {
-  chief: { icon: '🧙‍♂️', caps: ['overall coordination', 'strategy execution'], tools: ['orchestrator', 'agent.route', 'approval.create'], approval: false },
+  chief: { icon: '🧙', caps: ['overall coordination', 'strategy execution'], tools: ['orchestrator', 'agent.route', 'approval.create'], approval: false },
   strategy: { icon: '📊', caps: ['business planning', 'market analysis'], tools: ['market.analyze', 'swot.generate', 'okr.create'], approval: true },
   operations: { icon: '⚙️', caps: ['workflow management', 'process optimization'], tools: ['workflow.create', 'task.assign'], approval: true },
   finance: { icon: '💰', caps: ['transaction monitoring', 'reporting', 'budget planning'], tools: ['payment.monitor', 'report.generate', 'budget.plan'], approval: true },
@@ -86,20 +139,15 @@ const KEYWORD_ROUTES = {
   'security': 'security', 'audit': 'security', 'secret': 'security', 'threat': 'security', 'vulnerability': 'security',
 };
 
-// In-memory audit log (last 100 entries)
 const auditLog = [];
 const pendingApprovals = new Map();
+const messageHistory = [];
 
 function logAudit(event, tool, agent, risk, details, result) {
   const entry = {
     id: `LOG-${Date.now().toString(36).toUpperCase()}`,
-    event_type: event,
-    tool_name: tool,
-    agent_role: agent,
-    risk_level: risk,
-    severity: risk === 'high' ? 'warning' : 'info',
-    details: details,
-    action_result: result,
+    event_type: event, tool_name: tool, agent_role: agent, risk_level: risk,
+    severity: risk === 'high' ? 'warning' : 'info', details: details, action_result: result,
     timestamp: new Date().toISOString(),
   };
   auditLog.unshift(entry);
@@ -112,6 +160,50 @@ function routeMessage(message) {
     if (lower.includes(kw)) return role;
   }
   return 'chief';
+}
+
+// ============ AI RESPONSE ============
+async function generateAIResponse(userMessage) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return 'Groq API key not configured. Set GROQ_API_KEY in environment.';
+
+  const recentHistory = messageHistory.slice(-10);
+  const messages = [{ role: 'system', content: STANDING_ORDERS }];
+  messages.push.apply(messages, recentHistory);
+  messages.push({ role: 'user', content: userMessage });
+
+  const FALLBACK_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+
+  for (var i = 0; i < FALLBACK_MODELS.length; i++) {
+    try {
+      const response = await axios.post(GROQ_API_URL, {
+        model: FALLBACK_MODELS[i],
+        messages: messages,
+        max_tokens: 2000,
+        temperature: 0.7,
+        stream: false
+      }, {
+        headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        timeout: 30000
+      });
+      if (response.data && response.data.choices && response.data.choices[0]) {
+        const reply = response.data.choices[0].message.content;
+        messageHistory.push({ role: 'user', content: userMessage });
+        messageHistory.push({ role: 'assistant', content: reply });
+        if (messageHistory.length > 40) messageHistory.splice(0, messageHistory.length - 40);
+        return reply;
+      }
+    } catch (err) {
+      if (err.response && err.response.status === 401) return 'Groq API key invalid or expired.';
+      if (err.code === 'ECONNABORTED') return 'AI response timed out — try a shorter question.';
+      if (i === FALLBACK_MODELS.length - 1) {
+        var msg = (err.response && err.response.data && err.response.data.error)
+          ? err.response.data.error.message : err.message;
+        return 'AI error: ' + msg + '. Try again in a moment.';
+      }
+    }
+  }
+  return 'No response from AI.';
 }
 
 // ============ HELPER ============
@@ -135,13 +227,13 @@ async function handleCommand(chatId, text) {
   const args = rest.join(' ').trim();
 
   if (String(chatId) !== OWNER_CHAT_ID) {
-    return sendMessage(chatId, '⛔ Unauthorized. This bot is private.');
+    return sendMessage(chatId, 'Unauthorized. This bot is private.');
   }
 
   switch (cmd) {
     case '/start': {
       return sendMessage(chatId,
-        '🧙‍♂️ OMEGA Commander AI\n\n' +
+        'OMEGA Commander AI v2.1.0\n\n' +
         'Standalone business orchestrator for the Harz Ecosystem.\n\n' +
         'Commands:\n' +
         '/omega-ai — System status\n' +
@@ -153,176 +245,115 @@ async function handleCommand(chatId, text) {
         '/omega-pending — Pending approvals\n' +
         '/omega-audit — Audit log\n' +
         '/omega-help — Full help\n\n' +
-        'Version: 2.1.0\n' +
-        'Status: OPERATIONAL');
+        'Or just type a natural message and I will respond with AI.\n\n' +
+        'Version: 2.1.0 | Status: OPERATIONAL');
     }
 
     case '/omega-ai': case '/omegaai': {
       const agentCount = Object.keys(AGENTS).length;
-      const toolCount = Object.keys(SMART_DEFAULTS).length + 4;
       return sendMessage(chatId,
-        '🧙‍♂️ OMEGA Commander AI v2.1.0\n\n' +
+        'OMEGA Commander AI v2.1.0\n\n' +
         'Status: operational\n' +
         'Agents: ' + agentCount + '\n' +
-        'Tools: ' + toolCount + '\n' +
-        'Channels: telegram, whatsapp\n' +
+        'AI: Groq ' + GROQ_MODEL + '\n' +
         'Audit entries: ' + auditLog.length + '\n' +
         'Pending approvals: ' + pendingApprovals.size + '\n' +
-        'Last update ID: ' + lastUpdateId + '\n\n' +
+        'Last update ID: ' + lastUpdateId + '\n' +
         'Bot: @Omegacommanderaibot');
     }
 
     case '/omega-agents': case '/oagents': {
       const lines = Object.entries(AGENTS).map(([role, a]) =>
-        a.icon + ' ' + role.toUpperCase() + '\n' +
-        '  Caps: ' + a.caps.join(', ') + '\n' +
-        '  Tools: ' + a.tools.join(', ') + '\n' +
-        '  Approval: ' + (a.approval ? 'YES' : 'NO')
-      ).join('\n\n');
-      return sendMessage(chatId, '🤖 OMEGA Agents (' + Object.keys(AGENTS).length + ')\n\n' + lines);
+        a.icon + ' ' + role.toUpperCase() + ' | Caps: ' + a.caps.join(', ') + ' | Approval: ' + (a.approval ? 'YES' : 'NO')
+      ).join('\n');
+      return sendMessage(chatId, 'OMEGA Agents (' + Object.keys(AGENTS).length + ')\n\n' + lines);
     }
 
     case '/omega-route': case '/oroute': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-route [your message]\nExample: /omega-route deploy my app to vercel');
+      if (!args) return sendMessage(chatId, 'Usage: /omega-route [your message]');
       const agent = routeMessage(args);
       const a = AGENTS[agent];
-      return sendMessage(chatId,
-        '🎯 Routed to: ' + agent + '\n\n' +
-        'Role: ' + agent + '\n' +
-        'Capabilities: ' + a.caps.join(', ') + '\n' +
-        'Tools: ' + a.tools.join(', ') + '\n' +
-        'Requires Approval: ' + (a.approval ? 'YES' : 'NO'));
+      return sendMessage(chatId, 'Routed to: ' + agent + ' | Caps: ' + a.caps.join(', ') + ' | Tools: ' + a.tools.join(', '));
     }
 
     case '/omega-execute': case '/oexec': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-execute [tool.action] [agent]\nExample: /omega-execute content.create marketing');
+      if (!args) return sendMessage(chatId, 'Usage: /omega-execute [tool.action] [agent]');
       const parts = args.split(' ');
       const toolAction = parts[0];
       const agentRole = parts[1] || 'chief';
       const [tool, action] = toolAction.split('.');
       const a = AGENTS[agentRole] || AGENTS.chief;
-
       const smartKey = tool + '.' + (action || 'default');
+
       if (SMART_DEFAULTS[smartKey] === 'auto-approve' || !a.approval) {
-        logAudit('action', tool + '.' + action, agentRole, 'low', tool + '.' + action + ' auto-approved and executed', 'executed');
-        return sendMessage(chatId,
-          '✅ Executed\n\nTool: ' + tool + '.' + (action || 'default') + '\n' +
-          'Agent: ' + agentRole + '\n' +
-          'Auto-approved: YES\n' +
-          'Time: ' + new Date().toISOString());
+        logAudit('action', tool + '.' + action, agentRole, 'low', 'auto-approved', 'executed');
+        return sendMessage(chatId, 'Executed: ' + tool + '.' + (action || 'default') + ' by ' + agentRole + ' (auto-approved)');
       }
 
       const approvalId = 'APR-' + Date.now().toString(36).toUpperCase();
       pendingApprovals.set(approvalId, {
-        tool_name: tool,
-        action_type: action || 'default',
-        agent_role: agentRole,
-        risk_level: 'high',
-        created_at: Date.now(),
-        expires_at: Date.now() + 10 * 60 * 1000,
+        tool_name: tool, action_type: action || 'default', agent_role: agentRole,
+        risk_level: 'high', created_at: Date.now(), expires_at: Date.now() + 10 * 60 * 1000,
       });
-
-      logAudit('approval', tool + '.' + action, agentRole, 'high', 'Approval required for ' + tool + '.' + action, 'pending');
-
-      return sendMessage(chatId,
-        '⚠️ Approval Required\n\n' +
-        'Tool: ' + tool + '.' + (action || 'default') + '\n' +
-        'Agent: ' + agentRole + '\n' +
-        'Risk: HIGH\n' +
-        'ID: ' + approvalId + '\n\n' +
-        'Use /omega-approve ' + approvalId + ' to approve\n' +
-        'Use /omega-deny ' + approvalId + ' to deny');
+      logAudit('approval', tool + '.' + action, agentRole, 'high', 'pending', 'pending');
+      return sendMessage(chatId, 'Approval Required\nID: ' + approvalId + '\nTool: ' + tool + '.' + (action || 'default') + '\nAgent: ' + agentRole + '\n\nUse /omega-approve ' + approvalId + ' or /omega-deny ' + approvalId);
     }
 
     case '/omega-approve': case '/oapprove': {
       if (!args) return sendMessage(chatId, 'Usage: /omega-approve [approval_id]');
       const id = args.split(' ')[0];
       const approval = pendingApprovals.get(id);
-      if (!approval) return sendMessage(chatId, '❌ Approval ' + id + ' not found or already resolved.');
-
+      if (!approval) return sendMessage(chatId, 'Approval ID not found: ' + id);
+      approval.status = 'approved';
+      logAudit('approval', approval.tool_name, approval.agent_role, 'high', 'approved by owner', 'executed');
       pendingApprovals.delete(id);
-      logAudit('approval', approval.tool_name + '.' + approval.action_type, approval.agent_role, 'low',
-        'Approved by Rabiu: ' + approval.tool_name + '.' + approval.action_type, 'approved');
-
-      return sendMessage(chatId,
-        '✅ Approved\n\n' +
-        'ID: ' + id + '\n' +
-        'Tool: ' + approval.tool_name + '.' + approval.action_type + '\n' +
-        'Agent: ' + approval.agent_role + '\n' +
-        'By: Rabiu\n' +
-        'Time: ' + new Date().toISOString() + '\n\n' +
-        'Action is now executing.');
+      return sendMessage(chatId, 'Approved: ' + approval.tool_name + '.' + approval.action_type + ' (' + approval.agent_role + ')');
     }
 
     case '/omega-deny': case '/odeny': {
       if (!args) return sendMessage(chatId, 'Usage: /omega-deny [approval_id] [reason]');
       const parts = args.split(' ');
       const id = parts[0];
-      const reason = parts.slice(1).join(' ') || 'Not specified';
-
+      const reason = parts.slice(1).join(' ') || 'no reason given';
       const approval = pendingApprovals.get(id);
-      if (!approval) return sendMessage(chatId, '❌ Approval ' + id + ' not found or already resolved.');
-
+      if (!approval) return sendMessage(chatId, 'Approval ID not found: ' + id);
+      logAudit('denial', approval.tool_name, approval.agent_role, 'high', 'denied: ' + reason, 'denied');
       pendingApprovals.delete(id);
-      logAudit('approval', approval.tool_name + '.' + approval.action_type, approval.agent_role, 'high',
-        'Denied by Rabiu: ' + approval.tool_name + '.' + approval.action_type + ' — Reason: ' + reason, 'denied');
-
-      return sendMessage(chatId,
-        '❌ Denied\n\n' +
-        'ID: ' + id + '\n' +
-        'Tool: ' + approval.tool_name + '.' + approval.action_type + '\n' +
-        'Reason: ' + reason + '\n' +
-        'By: Rabiu\n' +
-        'Time: ' + new Date().toISOString());
+      return sendMessage(chatId, 'Denied: ' + approval.tool_name + '.' + approval.action_type + ' (' + reason + ')');
     }
 
     case '/omega-pending': case '/opending': {
-      if (pendingApprovals.size === 0) return sendMessage(chatId, '✅ No pending approvals. All clear.');
+      if (pendingApprovals.size === 0) return sendMessage(chatId, 'No pending approvals.');
       const lines = [];
-      for (const [id, apv] of pendingApprovals) {
-        const age = Math.round((Date.now() - apv.created_at) / 1000 / 60);
-        const expires = Math.round((apv.expires_at - Date.now()) / 1000 / 60);
-        lines.push('ID: ' + id + '\nTool: ' + apv.tool_name + '.' + apv.action_type + '\nAgent: ' + apv.agent_role + '\nAge: ' + age + 'min | Expires in: ' + expires + 'min');
+      for (const [id, a] of pendingApprovals) {
+        lines.push(id + ' | ' + a.tool_name + '.' + a.action_type + ' | ' + a.agent_role);
       }
-      return sendMessage(chatId, '⏳ Pending Approvals (' + pendingApprovals.size + ')\n\n' + lines.join('\n\n'));
+      return sendMessage(chatId, 'Pending Approvals (' + pendingApprovals.size + ')\n\n' + lines.join('\n'));
     }
 
     case '/omega-audit': case '/oaudit': {
-      if (auditLog.length === 0) return sendMessage(chatId, '📋 Audit log is empty.');
-      const recent = auditLog.slice(0, 10);
-      const lines = recent.map(e =>
-        e.id + ' [' + e.event_type + '] ' + e.agent_role + ' → ' + e.tool_name + '\n' +
-        '  Risk: ' + e.risk_level + ' | Result: ' + e.action_result + '\n' +
-        '  ' + e.timestamp
-      ).join('\n\n');
-      return sendMessage(chatId, '📋 Audit Log (last ' + recent.length + ' of ' + auditLog.length + ')\n\n' + lines);
+      if (auditLog.length === 0) return sendMessage(chatId, 'No audit entries.');
+      const lines = auditLog.slice(0, 10).map(e =>
+        e.id + ' | ' + e.event_type + ' | ' + e.tool_name + ' | ' + e.agent_role + ' | ' + e.risk_level
+      );
+      return sendMessage(chatId, 'Audit Log (last ' + Math.min(10, auditLog.length) + ')\n\n' + lines.join('\n'));
     }
 
     case '/omega-help': case '/ohelp': {
       return sendMessage(chatId,
-        '🧙‍♂️ OMEGA Commander AI — HELP\n\n' +
-        'SYSTEM:\n' +
-        '/omega-ai — System status\n' +
-        '/omega-agents — List all 9 agents\n' +
-        '/omega-audit — View recent audit log\n\n' +
-        'ACTIONS:\n' +
-        '/omega-route [message] — Route task to best agent\n' +
-        '/omega-execute [tool.action] [agent] — Execute\n' +
-        '/omega-pending — Check pending approvals\n' +
-        '/omega-approve [id] — Approve an action\n' +
-        '/omega-deny [id] [reason] — Deny an action\n\n' +
-        'You can also just type a natural message and Ill route it to the right agent.\n\n' +
-        'Version: 2.1.0');
+        'OMEGA Commander AI v2.1.0 — HELP\n\n' +
+        'SYSTEM:\n/omega-ai /omega-agents /omega-audit\n\n' +
+        'ACTIONS:\n/omega-route [msg]\n/omega-execute [tool.action] [agent]\n/omega-pending\n/omega-approve [id]\n/omega-deny [id]\n\n' +
+        'Or just type a natural message and I will respond with AI powered by Groq.');
     }
 
     default: {
-      return sendMessage(chatId,
-        'Unknown command: ' + cmd + '\n\nType /omega-help for all commands.');
+      return sendMessage(chatId, 'Unknown command: ' + cmd + '. Type /omega-help for all commands.');
     }
   }
 }
 
-// ============ TELEGRAM POLLING (with deduplication + state persistence) ============
+// ============ TELEGRAM POLLING ============
 let polling = false;
 let pollErrors = 0;
 
@@ -335,11 +366,7 @@ async function startPolling() {
   async function poll() {
     try {
       const res = await axios.get(`${TELEGRAM_API}/getUpdates`, {
-        params: {
-          offset: lastUpdateId + 1,
-          timeout: 30,
-          limit: 10,
-        },
+        params: { offset: lastUpdateId + 1, timeout: 30, limit: 10 },
         timeout: 35000,
       });
 
@@ -353,72 +380,27 @@ async function startPolling() {
             const chatId = update.message.chat.id;
             const msgText = update.message.text;
 
-            // Skip already-processed messages (prevents duplicate responses after sleep/wake)
             if (processedMessages.has(msgId)) {
-              console.log('[OMEGA] Skipping duplicate message:', msgId);
+              console.log('[OMEGA] Skipping duplicate:', msgId);
               continue;
             }
 
-            // Skip messages older than 60 seconds (prevents processing backlog on wake)
             const msgAge = Date.now() / 1000 - update.message.date;
             if (msgAge > 60) {
-              console.log('[OMEGA] Skipping old message (' + Math.round(msgAge) + 's old):', msgText.substring(0, 50));
+              console.log('[OMEGA] Skipping old msg (' + Math.round(msgAge) + 's):', msgText.substring(0, 50));
               markProcessed(msgId);
               continue;
             }
 
             markProcessed(msgId);
-            console.log('[OMEGA] Message received:', msgText);
+            console.log('[OMEGA] Message:', msgText);
 
             if (msgText.startsWith('/')) {
               await handleCommand(chatId, msgText);
             } else {
-              // Non-command message — route to appropriate agent
-              const lowerMsg = msgText.toLowerCase();
-              const agent = routeMessage(msgText);
-
-              let response = '';
-
-              if (lowerMsg.includes('help') || lowerMsg.includes('what can') || lowerMsg.includes('commands')) {
-                response = 'Here are my commands:\n\n';
-                response += '/omega-ai — System status\n';
-                response += '/omega-agents — See all 9 agents\n';
-                response += '/omega-route [message] — Route a task\n';
-                response += '/omega-execute [tool] [agent] — Run an action\n';
-                response += '/omega-pending — Check approvals\n';
-                response += '/omega-audit — Recent activity\n';
-                response += '/omega-help — Full guide\n\n';
-                response += 'Or just tell me what you need and Ill point you to the right agent.';
-              } else if (lowerMsg.includes('status') || lowerMsg.includes('how are') || lowerMsg.includes('working')) {
-                response = 'All systems operational.\n\n';
-                response += '9 agents active\n';
-                response += 'Audit entries: ' + auditLog.length + '\n';
-                response += 'Pending approvals: ' + pendingApprovals.size + '\n';
-                response += 'Version: 2.1.0\n\n';
-                response += 'Use /omega-ai for full status.';
-              } else if (lowerMsg.includes('hello') || lowerMsg.includes('hi') || lowerMsg.includes('hey') || lowerMsg.includes('salam')) {
-                response = 'Hey Rabiu! OMEGA Commander at your service.\n\n';
-                response += 'What do you need? I can:\n';
-                response += 'Route tasks to 9 specialist agents\n';
-                response += 'Execute tools and actions\n';
-                response += 'Manage approvals\n';
-                response += 'Track audit logs\n\n';
-                response += 'Type /omega-help or just tell me what youre working on.';
-              } else if (agent !== 'chief') {
-                const a = AGENTS[agent];
-                response = a.icon + ' I think the ' + agent + ' agent can help with that.\n\n';
-                response += 'They handle: ' + a.caps.join(', ') + '\n';
-                response += 'Available tools: ' + a.tools.join(', ') + '\n\n';
-                response += 'To execute, try:\n';
-                response += '/omega-execute ' + a.tools[0] + ' ' + agent + '\n\n';
-                response += 'Type /omega-help for all commands.';
-              } else {
-                response = 'Got it. What would you like me to do?\n\n';
-                response += 'I can route tasks to specialist agents, execute tools, or check system status.\n\n';
-                response += 'Try /omega-help to see everything I can do, or tell me more about what you need.';
-              }
-
-              await sendMessage(chatId, response);
+              // AI-powered response using standing orders
+              const reply = await generateAIResponse(msgText);
+              await sendMessage(chatId, reply);
             }
           }
         }
@@ -426,12 +408,8 @@ async function startPolling() {
     } catch (e) {
       pollErrors++;
       console.error('[OMEGA] Poll error (' + pollErrors + '):', e.message);
-      if (pollErrors > 10) {
-        console.error('[OMEGA] Too many poll errors, resetting...');
-        pollErrors = 0;
-      }
+      if (pollErrors > 10) { pollErrors = 0; }
     }
-
     setTimeout(poll, 2000);
   }
 
@@ -442,10 +420,8 @@ async function startPolling() {
 app.post('/alert', async (req, res) => {
   try {
     const { tool_name, action_type, risk_level, triggered_by_agent, approval_id, message } = req.body;
-
     const alertText = [
-      '🧙‍♂️ OMEGA Approval Required',
-      '',
+      'OMEGA Approval Required',
       'Tool: ' + (tool_name || '?'),
       'Action: ' + (action_type || '?'),
       'Risk: ' + (risk_level || 'medium'),
@@ -455,14 +431,10 @@ app.post('/alert', async (req, res) => {
       message || 'Approve or deny this action.',
       '',
       'Reply /omega-approve ' + (approval_id || '') + ' to approve',
-      'Reply /omega-deny ' + (approval_id || '') + ' to deny',
     ].join('\n');
-
     await sendMessage(OWNER_CHAT_ID, alertText);
-    console.log('[OMEGA] Alert sent:', tool_name, action_type);
     res.json({ ok: true, sent_to: OWNER_CHAT_ID, channel: 'telegram' });
   } catch (err) {
-    console.error('[OMEGA] Alert error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -470,43 +442,29 @@ app.post('/alert', async (req, res) => {
 // ============ HEALTH ============
 app.get('/', (req, res) => {
   res.json({
-    name: 'OMEGA Commander AI',
-    version: '2.1.0',
-    status: 'operational',
-    bot: '@Omegacommanderaibot',
-    uptime: process.uptime(),
-    polling: polling,
-    last_update_id: lastUpdateId,
-    pending_approvals: pendingApprovals.size,
-    audit_entries: auditLog.length,
-    timestamp: new Date().toISOString(),
+    name: 'OMEGA Commander AI', version: '2.1.0', status: 'operational',
+    bot: '@Omegacommanderaibot', uptime: process.uptime(), polling: polling,
+    last_update_id: lastUpdateId, pending_approvals: pendingApprovals.size,
+    audit_entries: auditLog.length, ai_model: GROQ_MODEL, timestamp: new Date().toISOString(),
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), polling: polling, version: '2.1.0' });
+  res.json({ status: 'ok', uptime: process.uptime(), polling: polling, version: '2.1.0', ai: true });
 });
 
 // ============ START ============
 app.listen(PORT, async () => {
   console.log('[OMEGA] Commander AI v2.1.0 starting on port ' + PORT);
   console.log('[OMEGA] Bot: @Omegacommanderaibot');
-  console.log('[OMEGA] Owner: ' + OWNER_CHAT_ID);
+  console.log('[OMEGA] AI: Groq ' + GROQ_MODEL);
   console.log('[OMEGA] Resuming from update ID:', lastUpdateId);
-
   await startPolling();
-
-  // Only send startup message if this is NOT a sleep/wake cycle
-  // Check uptime — if less than 5 seconds, it's a fresh start
   if (process.uptime() < 5) {
     await sendMessage(OWNER_CHAT_ID,
-      '🧙‍♂️ OMEGA Commander AI — Online\n\n' +
-      'v2.1.0 — Deduplication fixed\n' +
-      '9 agents ready, polling active.\n\n' +
-      'Type /omega-help to see all commands.');
+      'OMEGA Commander AI v2.1.0 — Online\n\nStanding orders loaded. AI enabled (Groq ' + GROQ_MODEL + ').\n9 agents ready, polling active.\n\nType /omega-help or just talk to me.');
   } else {
-    console.log('[OMEGA] Sleep/wake detected — skipping startup message');
+    console.log('[OMEGA] Sleep/wake — skipping startup msg');
   }
-
-  console.log('[OMEGA] Startup complete — polling active');
+  console.log('[OMEGA] Startup complete — polling + AI active');
 });
