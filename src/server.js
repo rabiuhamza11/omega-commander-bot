@@ -19,7 +19,7 @@ const GITHUB_USER = 'rabiuhamza11';
 const BASE44_FUNCTIONS = 'https://superagent-2286fb2f.base44.app/functions';
 
 // ============ STANDING ORDERS ============
-const SYSTEM_PROMPT = `You are OMEGA Commander AI v3.0 — Operations Agent for Rabiu Hamza Mohammed.
+const SYSTEM_PROMPT = `You are OMEGA Commander AI v3.0.1 — Operations Agent for Rabiu Hamza Mohammed.
 
 OWNER: Rabiu Hamza Mohammed (08028687857, hamzarabiu390@gmail.com, UBA 2034326424)
 GitHub: rabiuhamza11 | Telegram Chat ID: 1440727973
@@ -408,10 +408,10 @@ async function handleCommand(chatId, text) {
 
   switch (cmd) {
     case '/start':
-      return sendMessage(chatId, 'OMEGA Commander AI v3.0\n\nReal execution engine. I can now:\n- Check any service status\n- Push code to GitHub\n- Read/write Base44 database\n- Call backend functions\n- Send Telegram messages\n- Check entire ecosystem\n\nJust tell me what to do in plain language.\n\nCommands: /omega-ai /omega-help');
+      return sendMessage(chatId, 'OMEGA Commander AI v3.0.1\n\nReal execution engine. I can now:\n- Check any service status\n- Push code to GitHub\n- Read/write Base44 database\n- Call backend functions\n- Send Telegram messages\n- Check entire ecosystem\n\nJust tell me what to do in plain language.\n\nCommands: /omega-ai /omega-help');
 
     case '/omega-ai': case '/omegaai':
-      return sendMessage(chatId, 'OMEGA Commander AI v3.0\nStatus: operational\nTools: 10 real execution tools\nAI: Groq ' + GROQ_MODEL + '\nPolling: active\nBot: @Omegacommanderaibot');
+      return sendMessage(chatId, 'OMEGA Commander AI v3.0.1\nStatus: operational\nTools: 10 real execution tools\nAI: Groq ' + GROQ_MODEL + '\nPolling: active\nBot: @Omegacommanderaibot');
 
     case '/omega-help': case '/ohelp':
       return sendMessage(chatId, 'OMEGA v3.0 — HELP\n\nI can execute real actions. Just ask:\n\n"Check if HarzDM is up"\n"List my GitHub repos"\n"Read the last 5 orders from Base44"\n"Push a file to maganu-agent repo"\n"Check all ecosystem services"\n"Call the digitalMarketing function"\n"Send a message to my Telegram"\n\nOr use /omega-ai for status.');
@@ -430,9 +430,45 @@ async function handleCommand(chatId, text) {
 let polling = false;
 let pollErrors = 0;
 
+// Flush old messages on startup — prevents reprocessing after Render restart
+async function flushOldMessages() {
+  try {
+    // Get the latest update ID without processing any messages
+    const res = await axios.get(`${TELEGRAM_API}/getUpdates`, {
+      params: { offset: -1, timeout: 1, limit: 1 }, timeout: 10000
+    });
+    if (res.data.ok && res.data.result.length > 0) {
+      lastUpdateId = res.data.result[0].update_id;
+      console.log('[OMEGA] Flushed to update ID:', lastUpdateId);
+    } else {
+      // No pending messages — try getting the last update
+      const res2 = await axios.get(`${TELEGRAM_API}/getUpdates`, {
+        params: { offset: -1, timeout: 1, limit: 1 }, timeout: 10000
+      });
+      if (res2.data.ok && res2.data.result.length > 0) {
+        lastUpdateId = res2.data.result[0].update_id;
+        console.log('[OMEGA] Flushed to update ID:', lastUpdateId);
+      } else {
+        console.log('[OMEGA] No pending messages to flush');
+      }
+    }
+    // Confirm the offset so Telegram won't resend these
+    await axios.get(`${TELEGRAM_API}/getUpdates`, {
+      params: { offset: lastUpdateId + 1, timeout: 1, limit: 1 }, timeout: 10000
+    });
+    state.lastUpdateId = lastUpdateId;
+    saveState(state);
+  } catch (e) {
+    console.error('[OMEGA] Flush error:', e.message);
+  }
+}
+
 async function startPolling() {
   if (polling) return;
   polling = true;
+
+  // Always flush old messages on startup — state.json is ephemeral on Render
+  await flushOldMessages();
   console.log('[OMEGA] v3.0 polling started, resuming from update ID:', lastUpdateId);
 
   async function poll() {
@@ -451,8 +487,9 @@ async function startPolling() {
             const msgText = update.message.text;
 
             if (processedMessages.has(msgId)) continue;
+            // Skip messages older than 30 seconds (anti-repeat safety)
             const msgAge = Date.now() / 1000 - update.message.date;
-            if (msgAge > 60) { markProcessed(msgId); continue; }
+            if (msgAge > 30) { markProcessed(msgId); continue; }
             markProcessed(msgId);
 
             console.log('[OMEGA] Message:', msgText.substring(0, 80));
@@ -479,12 +516,12 @@ async function startPolling() {
 
 // ============ API ENDPOINTS ============
 app.get('/', (req, res) => {
-  res.json({ name: 'OMEGA Commander AI', version: '3.0.0', status: 'operational', bot: '@Omegacommanderaibot',
+  res.json({ name: 'OMEGA Commander AI', version: '3.0.1', status: 'operational', bot: '@Omegacommanderaibot',
     uptime: process.uptime(), polling, last_update_id: lastUpdateId, tools: 10, ai_model: GROQ_MODEL, timestamp: new Date().toISOString() });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), polling, version: '3.0.0', ai: true, tools: 10 });
+  res.json({ status: 'ok', uptime: process.uptime(), polling, version: '3.0.1', ai: true, tools: 10 });
 });
 
 app.post('/execute', async (req, res) => {
