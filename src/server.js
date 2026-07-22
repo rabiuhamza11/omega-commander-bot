@@ -5,7 +5,7 @@ const path = require('path');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 const PORT = process.env.PORT || 3000;
@@ -14,392 +14,454 @@ const OWNER_CHAT_ID = '1440727973';
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const GITHUB_USER = 'rabiuhamza11';
+const BASE44_FUNCTIONS = 'https://superagent-2286fb2f.base44.app/functions';
 
-// ============ STANDING ORDERS (System Prompt) ============
-const STANDING_ORDERS = [
-  '# TELEGRAM AGENT — SYSTEM PROMPT / STANDING ORDERS',
-  '',
-  '## 1. IDENTITY',
-  'You are OMEGA Commander AI v2.1 — Operations Agent for Rabiu Hamza Mohammed (08028687857, hamzarabiu390@gmail.com, UBA 2034326424).',
-  'You manage digital services across: HARZ Construction, EstateHub, BuildBot AI, HPIN (HARZ Project Intelligence Network), Nexal Media, Omega Pay Global, Harz Digital Market, and HARZ ebook/publishing line.',
-  'You are NOT Llama or ChatGPT. You are OMEGA Commander.',
-  'You are not a chatbot that waits to be entertained. You are on-duty staff.',
-  'Silence, sleep, or unacknowledged messages are treated as failure to perform duty.',
-  '',
-  '## 2. NON-NEGOTIABLE RESPONSE RULES',
-  '- Every incoming message MUST get a reply within the same turn. No exceptions.',
-  '- If you cannot complete a task immediately, you MUST still respond immediately with:',
-  '  1) what you understood the request to be,',
-  '  2) what you are doing about it,',
-  '  3) an ETA or next checkpoint.',
-  '- Never go quiet mid-task. If a task takes multiple steps, post short progress updates rather than one long delay followed by a final answer.',
-  '- If you hit an error, missing access, or a blocker, SAY SO immediately — do not stall silently while retrying in the background.',
-  '- "I dont know" or "I need input" is always an acceptable reply. Silence is not.',
-  '- If more than one exchange passes with no output from you, that is a critical failure state — assume Rabiu will treat repeated silence as the agent being down.',
-  '',
-  '## 3. SCOPE OF AUTHORITY',
-  'Within Telegram, you are authorized and expected to:',
-  '- Track and report status across all active ventures (builds, launches, client outreach, content pipeline) without being re-briefed each time.',
-  '- Draft, queue, or send messages, replies, and follow-ups related to the businesses when asked — construction leads, EstateHub inquiries, Nexal client comms, ebook sales/support, Omega Pay Global updates.',
-  '- Flag deadlines, stalled items, or anything needing a decision — proactively, not only when asked.',
-  '- Maintain a working memory of what is in progress across ventures so Rabiu does not have to re-explain context every message.',
-  '- Escalate clearly when something needs Rabius judgment call rather than guessing or going silent to figure it out.',
-  '',
-  '## 4. REPORTING FORMAT',
-  '- Lead with status or answer, not preamble.',
-  '- Use plain, direct language — this is a working channel, not a customer-facing bot.',
-  '- When reporting on multiple ventures, use short labeled lines (e.g. "HPIN: ..." / "EstateHub: ...") rather than long paragraphs.',
-  '',
-  '## 5. FAILURE MODE ACKNOWLEDGMENT',
-  'If you ever recognize that you went silent, missed a message, or stalled:',
-  '- Own it plainly in one line, state what caused it if known, and resume — no excessive apologizing, no repeated reassurances. Then get back to work.',
-  '',
-  '## 6. STANDING INSTRUCTION',
-  'Treat every message from Rabiu as coming from the owner of the businesses you run operations for. Default to action and status, not clarification-seeking, unless a request is genuinely ambiguous enough that guessing would waste his time.',
-  '',
-  '## 7. ECOSYSTEM CONTEXT',
-  'HARZ ECOSYSTEM (24 platforms): HarzDM Marketplace, OMEGA INFINITY 1000, TradeOS, BuildBot AI, ContentPilot AI, Abuja Estate City, HarzMusic, HarzFilm, HarzPay, Apex Bank, HarzAjo, HarzFX, HarzLend, OMEGA Health AI, MindCare AI, Cyber Shield X, EduWealth AI, OMEGA Content AI, Maganu Agent, WhatsApp CRM, Harz AI Agency, Freelance Marketplace, Events, Portfolio.',
-  'KEY URLs: harzdm-marketplace.vercel.app | omega-commander-ai.onrender.com | superagent-2286fb2f.base44.app',
-  'PAYMENTS: UBA 2034326424 (Rabiu Hamza Mohammed) | USDT TRC20: TVE2ia3UTXUsp8V7USFDG94kdEbJZ1X5Cr | HarzPay affiliate 10% commission',
-  'Paystack: TEST MODE (pending verify) | Stripe: TEST MODE',
-  'BUSINESS: HI Water/Block Industry (trading as Harz Digital Services) | CAC RC 321424 | TIN 24550860',
-  'Location: Lagos, Nigeria (WAT). Book: The Complete Genius 365. GitHub: rabiuhamza11.',
-  '259 digital products across 45 categories. 27 music tracks. 8 films. 12 courses.',
-  '',
-  'You have 9 executive agents: chief, strategy, operations, finance, marketing, sales, support, dev, security.',
-  'Route tasks by keyword: deploy/dev, market/strategy, payment/finance, content/marketing, lead/sales, ticket/support, audit/security.',
-].join('\n');
+// ============ STANDING ORDERS ============
+const SYSTEM_PROMPT = `You are OMEGA Commander AI v3.0 — Operations Agent for Rabiu Hamza Mohammed.
 
-// ============ PERSISTENT STATE ============
+OWNER: Rabiu Hamza Mohammed (08028687857, hamzarabiu390@gmail.com, UBA 2034326424)
+GitHub: rabiuhamza11 | Telegram Chat ID: 1440727973
+Business: HI Water/Block Industry (trading as Harz Digital Services) | CAC RC 321424 | TIN 24550860
+
+STANDING ORDERS:
+1. Every message MUST get a reply. No silence. No exceptions.
+2. If you cant complete a task, say what you understood, what youre doing, and an ETA.
+3. Never go quiet mid-task. Post progress updates.
+4. If you hit an error, SAY SO immediately.
+5. Lead with status/answer, not preamble.
+6. Use short labeled lines for multi-venture reports (HPIN: ... / EstateHub: ...).
+7. Default to action, not clarification-seeking.
+8. Own failures plainly, resume immediately.
+
+YOU HAVE REAL TOOLS. USE THEM:
+- check_service(url): Ping any URL, return HTTP status + response
+- github_repos(): List all GitHub repos
+- github_file(repo, path): Read a file from a repo
+- github_push(repo, path, content, message): Push a file to a repo
+- base44_read(entity, limit): Read entity records from Base44 database
+- base44_create(entity, data): Create a record in Base44
+- base44_call(function_name, payload): Call a Base44 backend function
+- telegram_send(chat_id, text): Send a Telegram message
+- ecosystem_status(): Check all Harz ecosystem platforms
+- groq_think(prompt): Generate AI content
+
+HARZ ECOSYSTEM (24 platforms):
+HarzDM, OMEGA Infinity 1000, TradeOS, BuildBot AI, ContentPilot AI, Abuja Estate City,
+HarzMusic, HarzFilm, HarzPay, Apex Bank, HarzAjo, HarzFX, HarzLend,
+OMEGA Health AI, MindCare AI, Cyber Shield X, EduWealth AI, OMEGA Content AI,
+Maganu Agent, WhatsApp CRM, Harz AI Agency, Freelance Marketplace, Events, Portfolio.
+
+KEY URLs:
+harzdm-marketplace.vercel.app | maganu-agent.onrender.com | omega-commander-ai.onrender.com
+Base44 functions: harzPay, harzPayOrders, digitalMarketing, harzCRM, harzdmCatalog
+
+PAYMENTS: UBA 2034326424 | USDT TRC20: (set in env)
+Paystack: TEST MODE | Stripe: TEST MODE | 259 digital products
+
+When asked to do something, USE THE TOOLS to actually do it. Dont just say you can — execute.`;
+
+// ============ STATE ============
 const STATE_FILE = path.join(__dirname, 'state.json');
-
-function loadState() {
-  try {
-    const raw = fs.readFileSync(STATE_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    return { lastUpdateId: 0, processedMessages: [] };
-  }
-}
-
-function saveState(state) {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
-  } catch (e) {
-    console.error('[OMEGA] State save error:', e.message);
-  }
-}
-
+function loadState() { try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return { lastUpdateId: 0, processedMessages: [], conversation: [] }; } }
+function saveState(s) { try { fs.writeFileSync(STATE_FILE, JSON.stringify(s)); } catch {} }
 let state = loadState();
 let lastUpdateId = state.lastUpdateId || 0;
 const processedMessages = new Set(state.processedMessages || []);
+const conversation = state.conversation || [];
+function markProcessed(id) {
+  processedMessages.add(id);
+  if (processedMessages.size > 200) { const a = Array.from(processedMessages); processedMessages.clear(); a.slice(-200).forEach(i => processedMessages.add(i)); }
+  state.lastUpdateId = lastUpdateId; state.processedMessages = Array.from(processedMessages); state.conversation = conversation.slice(-40); saveState(state);
+}
 
-function markProcessed(msgId) {
-  processedMessages.add(msgId);
-  if (processedMessages.size > 200) {
-    const arr = Array.from(processedMessages);
-    processedMessages.clear();
-    arr.slice(-200).forEach(id => processedMessages.add(id));
+// ============ REAL TOOLS ============
+async function checkService(url) {
+  try {
+    const start = Date.now();
+    const res = await axios.get(url, { timeout: 15000, validateStatus: () => true });
+    const ms = Date.now() - start;
+    let body = '';
+    try { body = JSON.stringify(res.data).substring(0, 200); } catch { body = (typeof res.data === 'string' ? res.data : '').substring(0, 200); }
+    return { status: res.status, ok: res.status < 400, ms: ms, body: body };
+  } catch (e) {
+    return { status: 0, ok: false, error: e.message };
   }
-  state.lastUpdateId = lastUpdateId;
-  state.processedMessages = Array.from(processedMessages);
-  saveState(state);
 }
 
-// ============ AGENT DEFINITIONS ============
-const AGENTS = {
-  chief: { icon: '🧙', caps: ['overall coordination', 'strategy execution'], tools: ['orchestrator', 'agent.route', 'approval.create'], approval: false },
-  strategy: { icon: '📊', caps: ['business planning', 'market analysis'], tools: ['market.analyze', 'swot.generate', 'okr.create'], approval: true },
-  operations: { icon: '⚙️', caps: ['workflow management', 'process optimization'], tools: ['workflow.create', 'task.assign'], approval: true },
-  finance: { icon: '💰', caps: ['transaction monitoring', 'reporting', 'budget planning'], tools: ['payment.monitor', 'report.generate', 'budget.plan'], approval: true },
-  marketing: { icon: '📢', caps: ['content creation', 'campaign management', 'analytics'], tools: ['content.create', 'campaign.launch', 'analytics.view'], approval: true },
-  sales: { icon: '📈', caps: ['lead generation', 'proposal writing', 'CRM'], tools: ['lead.generate', 'proposal.write', 'crm.update'], approval: true },
-  support: { icon: '🎧', caps: ['customer communication', 'ticket resolution'], tools: ['ticket.resolve', 'customer.reply', 'faq.search'], approval: false },
-  dev: { icon: '💻', caps: ['code generation', 'deployment', 'monitoring'], tools: ['vercel.deploy', 'github.push', 'code.generate'], approval: true },
-  security: { icon: '🔒', caps: ['threat detection', 'compliance', 'access control'], tools: ['security.audit', 'secret.scan', 'threat.detect'], approval: true },
-};
-
-const SMART_DEFAULTS = {
-  'vercel.deploy:preview': 'auto-approve',
-  'email.send:<10': 'auto-approve',
-  'content.create': 'auto-approve',
-  'ticket.resolve': 'auto-approve',
-  'analytics.view': 'auto-approve',
-  'report.generate': 'auto-approve',
-};
-
-const KEYWORD_ROUTES = {
-  'deploy': 'dev', 'push': 'dev', 'code': 'dev', 'github': 'dev', 'vercel': 'dev', 'render': 'dev', 'netlify': 'dev',
-  'market': 'strategy', 'strategy': 'strategy', 'swot': 'strategy', 'okr': 'strategy', 'competitor': 'strategy',
-  'workflow': 'operations', 'process': 'operations', 'optimize': 'operations', 'task': 'operations',
-  'payment': 'finance', 'budget': 'finance', 'finance': 'finance', 'report': 'finance', 'invoice': 'finance', 'revenue': 'finance',
-  'content': 'marketing', 'campaign': 'marketing', 'social': 'marketing', 'ads': 'marketing', 'marketing': 'marketing',
-  'lead': 'sales', 'proposal': 'sales', 'crm': 'sales', 'sales': 'sales', 'customer': 'sales',
-  'ticket': 'support', 'support': 'support', 'help': 'support', 'faq': 'support',
-  'security': 'security', 'audit': 'security', 'secret': 'security', 'threat': 'security', 'vulnerability': 'security',
-};
-
-const auditLog = [];
-const pendingApprovals = new Map();
-const messageHistory = [];
-
-function logAudit(event, tool, agent, risk, details, result) {
-  const entry = {
-    id: `LOG-${Date.now().toString(36).toUpperCase()}`,
-    event_type: event, tool_name: tool, agent_role: agent, risk_level: risk,
-    severity: risk === 'high' ? 'warning' : 'info', details: details, action_result: result,
-    timestamp: new Date().toISOString(),
-  };
-  auditLog.unshift(entry);
-  if (auditLog.length > 100) auditLog.pop();
+async function githubRepos() {
+  try {
+    const res = await axios.get(`https://api.github.com/users/${GITHUB_USER}/repos?per_page=100&sort=updated`, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: 'application/vnd.github.v3+json' },
+      timeout: 15000
+    });
+    return res.data.map(r => ({ name: r.name, url: r.html_url, updated: r.updated_at, stars: r.stargazers_count, language: r.language }));
+  } catch (e) { return { error: e.message }; }
 }
 
-function routeMessage(message) {
-  const lower = message.toLowerCase();
-  for (const [kw, role] of Object.entries(KEYWORD_ROUTES)) {
-    if (lower.includes(kw)) return role;
-  }
-  return 'chief';
+async function githubFile(repo, filePath) {
+  try {
+    const res = await axios.get(`https://api.github.com/repos/${GITHUB_USER}/${repo}/contents/${filePath}`, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: 'application/vnd.github.v3+json' },
+      timeout: 15000
+    });
+    if (res.data.encoding === 'base64') {
+      return { path: res.data.path, content: Buffer.from(res.data.content, 'base64').toString('utf8').substring(0, 2000) };
+    }
+    return { path: res.data.path, content: 'Binary file' };
+  } catch (e) { return { error: e.message }; }
 }
 
-// ============ AI RESPONSE ============
-async function generateAIResponse(userMessage) {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) return 'Groq API key not configured. Set GROQ_API_KEY in environment.';
-
-  const recentHistory = messageHistory.slice(-10);
-  const messages = [{ role: 'system', content: STANDING_ORDERS }];
-  messages.push.apply(messages, recentHistory);
-  messages.push({ role: 'user', content: userMessage });
-
-  const FALLBACK_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
-
-  for (var i = 0; i < FALLBACK_MODELS.length; i++) {
+async function githubPush(repo, filePath, content, message) {
+  try {
+    // Get current file SHA (if exists) for update
+    let sha = null;
     try {
-      const response = await axios.post(GROQ_API_URL, {
-        model: FALLBACK_MODELS[i],
+      const existing = await axios.get(`https://api.github.com/repos/${GITHUB_USER}/${repo}/contents/${filePath}`, {
+        headers: { Authorization: `token ${GITHUB_TOKEN}` }, timeout: 10000
+      });
+      sha = existing.data.sha;
+    } catch {}
+
+    const res = await axios.put(`https://api.github.com/repos/${GITHUB_USER}/${repo}/contents/${filePath}`, {
+      message: message || `Update ${filePath}`,
+      content: Buffer.from(content).toString('base64'),
+      sha: sha
+    }, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}`, Accept: 'application/vnd.github.v3+json' },
+      timeout: 15000
+    });
+    return { ok: true, commit: res.data.commit.sha, url: res.data.commit.html_url };
+  } catch (e) { return { error: e.message, status: e.response ? e.response.status : null }; }
+}
+
+async function base44Read(entity, limit) {
+  try {
+    const res = await axios.post(`${BASE44_FUNCTIONS}/harzCRM`, {
+      action: 'read_entities',
+      entity_name: entity,
+      limit: limit || 10
+    }, { timeout: 20000 });
+    return res.data;
+  } catch (e) {
+    // Try direct entity API
+    try {
+      const res2 = await axios.get(`https://superagent-2286fb2f.base44.app/api/entities/${entity}?limit=${limit || 10}`, { timeout: 20000 });
+      return res2.data;
+    } catch (e2) { return { error: e.message, fallback: e2.message }; }
+  }
+}
+
+async function base44Create(entity, data) {
+  try {
+    const res = await axios.post(`${BASE44_FUNCTIONS}/harzCRM`, {
+      action: 'create_entity',
+      entity_name: entity,
+      data: data
+    }, { timeout: 20000 });
+    return res.data;
+  } catch (e) { return { error: e.message }; }
+}
+
+async function base44Call(functionName, payload) {
+  try {
+    const res = await axios.post(`${BASE44_FUNCTIONS}/${functionName}`, payload || {}, { timeout: 30000 });
+    return res.data;
+  } catch (e) { return { error: e.message, status: e.response ? e.response.status : null, data: e.response ? e.response.data : null }; }
+}
+
+async function telegramSend(chatId, text) {
+  try {
+    await axios.post(`${TELEGRAM_API}/sendMessage`, { chat_id: chatId || OWNER_CHAT_ID, text: text });
+    return { ok: true };
+  } catch (e) { return { error: e.message }; }
+}
+
+async function ecosystemStatus() {
+  const services = [
+    { name: 'Maganu Agent', url: 'https://maganu-agent.onrender.com/' },
+    { name: 'OMEGA Commander', url: 'https://omega-commander-ai.onrender.com/' },
+    { name: 'HarzDM', url: 'https://harzdm-marketplace.vercel.app' },
+    { name: 'OMEGA Infinity', url: 'https://omega-infinity-dashboard.vercel.app' },
+    { name: 'TradeOS', url: 'https://tradeos-dashboard-fawn.vercel.app' },
+    { name: 'Abuja Estate', url: 'https://abuja-estate-city-ai.vercel.app' },
+    { name: 'Portfolio', url: 'https://rabiuhamza11.github.io/harz-portfolio/' },
+    { name: 'Base44', url: 'https://superagent-2286fb2f.base44.app/functions/fluxLinks' },
+  ];
+  const results = [];
+  for (const s of services) {
+    const r = await checkService(s.url);
+    results.push({ name: s.name, status: r.ok ? 'UP' : 'DOWN', code: r.status, ms: r.ms });
+  }
+  return results;
+}
+
+async function groqThink(prompt) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return { error: 'No GROQ_API_KEY' };
+  try {
+    const res = await axios.post(GROQ_API_URL, {
+      model: GROQ_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 1000, temperature: 0.7
+    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+    return { response: res.data.choices[0].message.content };
+  } catch (e) { return { error: e.message }; }
+}
+
+// ============ TOOL EXECUTOR ============
+async function executeTool(toolName, args) {
+  switch (toolName) {
+    case 'check_service': return await checkService(args.url || args);
+    case 'github_repos': return await githubRepos();
+    case 'github_file': return await githubFile(args.repo, args.path || args.filepath);
+    case 'github_push': return await githubPush(args.repo, args.path || args.filepath, args.content, args.message);
+    case 'base44_read': return await base44Read(args.entity, args.limit);
+    case 'base44_create': return await base44Create(args.entity, args.data);
+    case 'base44_call': return await base44Call(args.function || args.function_name, args.payload || args.data);
+    case 'telegram_send': return await telegramSend(args.chat_id, args.text);
+    case 'ecosystem_status': return await ecosystemStatus();
+    case 'groq_think': return await groqThink(args.prompt);
+    default: return { error: 'Unknown tool: ' + toolName };
+  }
+}
+
+// ============ AI WITH TOOL CALLING ============
+async function thinkWithTools(userMessage) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return 'GROQ_API_KEY not set. I cannot function without it.';
+
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...conversation.slice(-10),
+    { role: 'user', content: userMessage }
+  ];
+
+  const tools = [
+    { type: 'function', function: {
+      name: 'check_service', description: 'Ping a URL and return HTTP status, response time, and body snippet',
+      parameters: { type: 'object', properties: { url: { type: 'string', description: 'Full URL to check' } }, required: ['url'] }
+    }},
+    { type: 'function', function: {
+      name: 'github_repos', description: 'List all GitHub repositories for rabiuhamza11',
+      parameters: { type: 'object', properties: {} }
+    }},
+    { type: 'function', function: {
+      name: 'github_file', description: 'Read a file from a GitHub repo',
+      parameters: { type: 'object', properties: { repo: { type: 'string' }, path: { type: 'string', description: 'File path in repo' } }, required: ['repo', 'path'] }
+    }},
+    { type: 'function', function: {
+      name: 'github_push', description: 'Push/create/update a file in a GitHub repo',
+      parameters: { type: 'object', properties: {
+        repo: { type: 'string' }, path: { type: 'string', description: 'File path' },
+        content: { type: 'string', description: 'File content' }, message: { type: 'string', description: 'Commit message' }
+      }, required: ['repo', 'path', 'content'] }
+    }},
+    { type: 'function', function: {
+      name: 'base44_read', description: 'Read records from a Base44 entity (database table)',
+      parameters: { type: 'object', properties: {
+        entity: { type: 'string', description: 'Entity name e.g. Order, Product, Seller, WhatsAppCRM' },
+        limit: { type: 'number', description: 'Max records (default 10)' }
+      }, required: ['entity'] }
+    }},
+    { type: 'function', function: {
+      name: 'base44_create', description: 'Create a new record in a Base44 entity',
+      parameters: { type: 'object', properties: {
+        entity: { type: 'string' }, data: { type: 'object', description: 'Record data' }
+      }, required: ['entity', 'data'] }
+    }},
+    { type: 'function', function: {
+      name: 'base44_call', description: 'Call a Base44 backend function',
+      parameters: { type: 'object', properties: {
+        function: { type: 'string', description: 'Function name e.g. harzPay, harzPayOrders, digitalMarketing, harzCRM, harzdmCatalog' },
+        payload: { type: 'object', description: 'Payload to send' }
+      }, required: ['function'] }
+    }},
+    { type: 'function', function: {
+      name: 'telegram_send', description: 'Send a Telegram message to a chat ID',
+      parameters: { type: 'object', properties: {
+        chat_id: { type: 'string', description: 'Telegram chat ID (default: owner)' },
+        text: { type: 'string', description: 'Message text' }
+      }, required: ['text'] }
+    }},
+    { type: 'function', function: {
+      name: 'ecosystem_status', description: 'Check all Harz ecosystem platforms and return uptime status',
+      parameters: { type: 'object', properties: {} }
+    }},
+    { type: 'function', function: {
+      name: 'groq_think', description: 'Generate AI content for a specific prompt',
+      parameters: { type: 'object', properties: { prompt: { type: 'string' } }, required: ['prompt'] }
+    }},
+  ];
+
+  try {
+    // Step 1: Ask AI what tools to call
+    const res = await axios.post(GROQ_API_URL, {
+      model: GROQ_MODEL,
+      messages: messages,
+      tools: tools,
+      tool_choice: 'auto',
+      max_tokens: 2000,
+      temperature: 0.5
+    }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+
+    const choice = res.data.choices[0];
+    const responseMessage = choice.message;
+
+    // If AI wants to call tools
+    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+      let toolResults = [];
+      messages.push(responseMessage);
+
+      // Execute each tool call
+      for (const toolCall of responseMessage.tool_calls) {
+        const toolName = toolCall.function.name;
+        let args = {};
+        try { args = JSON.parse(toolCall.function.arguments); } catch {}
+
+        // Send immediate progress to user
+        const progressMsg = 'Executing: ' + toolName + '...';
+        // Don't send progress for telegram_send (avoid spam)
+
+        // Execute the tool
+        const result = await executeTool(toolName, args);
+
+        toolResults.push({
+          tool_call_id: toolCall.id,
+          role: 'tool',
+          name: toolName,
+          content: JSON.stringify(result).substring(0, 3000)
+        });
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result).substring(0, 3000)
+        });
+      }
+
+      // Step 2: Ask AI to format the results into a response
+      const finalRes = await axios.post(GROQ_API_URL, {
+        model: GROQ_MODEL,
         messages: messages,
         max_tokens: 2000,
-        temperature: 0.7,
-        stream: false
-      }, {
-        headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
-        timeout: 30000
-      });
-      if (response.data && response.data.choices && response.data.choices[0]) {
-        const reply = response.data.choices[0].message.content;
-        messageHistory.push({ role: 'user', content: userMessage });
-        messageHistory.push({ role: 'assistant', content: reply });
-        if (messageHistory.length > 40) messageHistory.splice(0, messageHistory.length - 40);
-        return reply;
-      }
-    } catch (err) {
-      if (err.response && err.response.status === 401) return 'Groq API key invalid or expired.';
-      if (err.code === 'ECONNABORTED') return 'AI response timed out — try a shorter question.';
-      if (i === FALLBACK_MODELS.length - 1) {
-        var msg = (err.response && err.response.data && err.response.data.error)
-          ? err.response.data.error.message : err.message;
-        return 'AI error: ' + msg + '. Try again in a moment.';
-      }
+        temperature: 0.5
+      }, { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+
+      const finalReply = finalRes.data.choices[0].message.content;
+
+      // Save to conversation history
+      conversation.push({ role: 'user', content: userMessage });
+      conversation.push({ role: 'assistant', content: finalReply });
+      if (conversation.length > 40) conversation.splice(0, conversation.length - 40);
+
+      return finalReply;
+    }
+
+    // No tools needed — just return the text response
+    const reply = responseMessage.content;
+    conversation.push({ role: 'user', content: userMessage });
+    conversation.push({ role: 'assistant', content: reply });
+    if (conversation.length > 40) conversation.splice(0, conversation.length - 40);
+
+    return reply;
+  } catch (err) {
+    if (err.response && err.response.status === 401) return 'Groq API key invalid or expired.';
+    if (err.code === 'ECONNABORTED') return 'AI timed out. Try a shorter request.';
+    const msg = err.response && err.response.data && err.response.data.error ? err.response.data.error.message : err.message;
+    return 'Error: ' + msg;
+  }
+}
+
+// ============ TELEGRAM ============
+async function sendMessage(chatId, text, parseMode) {
+  // Split long messages (Telegram limit: 4096 chars)
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > 4000) {
+    let split = remaining.lastIndexOf('\n', 4000);
+    if (split < 2000) split = 4000;
+    chunks.push(remaining.substring(0, split));
+    remaining = remaining.substring(split);
+  }
+  chunks.push(remaining);
+
+  for (const chunk of chunks) {
+    try {
+      const payload = { chat_id: chatId, text: chunk };
+      if (parseMode) payload.parse_mode = parseMode;
+      await axios.post(`${TELEGRAM_API}/sendMessage`, payload);
+    } catch (e) {
+      try { await axios.post(`${TELEGRAM_API}/sendMessage`, { chat_id: chatId, text: chunk }); } catch {}
     }
   }
-  return 'No response from AI.';
 }
 
-// ============ HELPER ============
-async function sendMessage(chatId, text, parseMode) {
-  try {
-    const payload = { chat_id: chatId, text: text };
-    if (parseMode) payload.parse_mode = parseMode;
-    await axios.post(`${TELEGRAM_API}/sendMessage`, payload);
-  } catch (e) {
-    console.error('Send error:', e.message);
-    try {
-      await axios.post(`${TELEGRAM_API}/sendMessage`, { chat_id: chatId, text: text });
-    } catch (e2) { console.error('Send error (plain):', e2.message); }
-  }
-}
-
-// ============ COMMAND HANDLERS ============
+// ============ COMMANDS ============
 async function handleCommand(chatId, text) {
   const [cmdRaw, ...rest] = text.split(' ');
   const cmd = cmdRaw.toLowerCase().replace(/@\w+$/, '');
   const args = rest.join(' ').trim();
 
-  if (String(chatId) !== OWNER_CHAT_ID) {
-    return sendMessage(chatId, 'Unauthorized. This bot is private.');
-  }
+  if (String(chatId) !== OWNER_CHAT_ID) return sendMessage(chatId, 'Unauthorized. This bot is private.');
 
   switch (cmd) {
-    case '/start': {
-      return sendMessage(chatId,
-        'OMEGA Commander AI v2.1.0\n\n' +
-        'Standalone business orchestrator for the Harz Ecosystem.\n\n' +
-        'Commands:\n' +
-        '/omega-ai — System status\n' +
-        '/omega-agents — List 9 executive agents\n' +
-        '/omega-route [msg] — Route task to agent\n' +
-        '/omega-execute [tool.action] [agent] — Execute\n' +
-        '/omega-approve [id] — Approve action\n' +
-        '/omega-deny [id] [reason] — Deny action\n' +
-        '/omega-pending — Pending approvals\n' +
-        '/omega-audit — Audit log\n' +
-        '/omega-help — Full help\n\n' +
-        'Or just type a natural message and I will respond with AI.\n\n' +
-        'Version: 2.1.0 | Status: OPERATIONAL');
-    }
+    case '/start':
+      return sendMessage(chatId, 'OMEGA Commander AI v3.0\n\nReal execution engine. I can now:\n- Check any service status\n- Push code to GitHub\n- Read/write Base44 database\n- Call backend functions\n- Send Telegram messages\n- Check entire ecosystem\n\nJust tell me what to do in plain language.\n\nCommands: /omega-ai /omega-help');
 
-    case '/omega-ai': case '/omegaai': {
-      const agentCount = Object.keys(AGENTS).length;
-      return sendMessage(chatId,
-        'OMEGA Commander AI v2.1.0\n\n' +
-        'Status: operational\n' +
-        'Agents: ' + agentCount + '\n' +
-        'AI: Groq ' + GROQ_MODEL + '\n' +
-        'Audit entries: ' + auditLog.length + '\n' +
-        'Pending approvals: ' + pendingApprovals.size + '\n' +
-        'Last update ID: ' + lastUpdateId + '\n' +
-        'Bot: @Omegacommanderaibot');
-    }
+    case '/omega-ai': case '/omegaai':
+      return sendMessage(chatId, 'OMEGA Commander AI v3.0\nStatus: operational\nTools: 10 real execution tools\nAI: Groq ' + GROQ_MODEL + '\nPolling: active\nBot: @Omegacommanderaibot');
 
-    case '/omega-agents': case '/oagents': {
-      const lines = Object.entries(AGENTS).map(([role, a]) =>
-        a.icon + ' ' + role.toUpperCase() + ' | Caps: ' + a.caps.join(', ') + ' | Approval: ' + (a.approval ? 'YES' : 'NO')
-      ).join('\n');
-      return sendMessage(chatId, 'OMEGA Agents (' + Object.keys(AGENTS).length + ')\n\n' + lines);
-    }
+    case '/omega-help': case '/ohelp':
+      return sendMessage(chatId, 'OMEGA v3.0 — HELP\n\nI can execute real actions. Just ask:\n\n"Check if HarzDM is up"\n"List my GitHub repos"\n"Read the last 5 orders from Base44"\n"Push a file to maganu-agent repo"\n"Check all ecosystem services"\n"Call the digitalMarketing function"\n"Send a message to my Telegram"\n\nOr use /omega-ai for status.');
 
-    case '/omega-route': case '/oroute': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-route [your message]');
-      const agent = routeMessage(args);
-      const a = AGENTS[agent];
-      return sendMessage(chatId, 'Routed to: ' + agent + ' | Caps: ' + a.caps.join(', ') + ' | Tools: ' + a.tools.join(', '));
-    }
+    case '/omega-status':
+      const status = await ecosystemStatus();
+      const lines = status.map(s => s.name + ': ' + s.status + ' (' + s.code + ', ' + s.ms + 'ms)');
+      return sendMessage(chatId, 'Ecosystem Status:\n\n' + lines.join('\n'));
 
-    case '/omega-execute': case '/oexec': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-execute [tool.action] [agent]');
-      const parts = args.split(' ');
-      const toolAction = parts[0];
-      const agentRole = parts[1] || 'chief';
-      const [tool, action] = toolAction.split('.');
-      const a = AGENTS[agentRole] || AGENTS.chief;
-      const smartKey = tool + '.' + (action || 'default');
-
-      if (SMART_DEFAULTS[smartKey] === 'auto-approve' || !a.approval) {
-        logAudit('action', tool + '.' + action, agentRole, 'low', 'auto-approved', 'executed');
-        return sendMessage(chatId, 'Executed: ' + tool + '.' + (action || 'default') + ' by ' + agentRole + ' (auto-approved)');
-      }
-
-      const approvalId = 'APR-' + Date.now().toString(36).toUpperCase();
-      pendingApprovals.set(approvalId, {
-        tool_name: tool, action_type: action || 'default', agent_role: agentRole,
-        risk_level: 'high', created_at: Date.now(), expires_at: Date.now() + 10 * 60 * 1000,
-      });
-      logAudit('approval', tool + '.' + action, agentRole, 'high', 'pending', 'pending');
-      return sendMessage(chatId, 'Approval Required\nID: ' + approvalId + '\nTool: ' + tool + '.' + (action || 'default') + '\nAgent: ' + agentRole + '\n\nUse /omega-approve ' + approvalId + ' or /omega-deny ' + approvalId);
-    }
-
-    case '/omega-approve': case '/oapprove': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-approve [approval_id]');
-      const id = args.split(' ')[0];
-      const approval = pendingApprovals.get(id);
-      if (!approval) return sendMessage(chatId, 'Approval ID not found: ' + id);
-      approval.status = 'approved';
-      logAudit('approval', approval.tool_name, approval.agent_role, 'high', 'approved by owner', 'executed');
-      pendingApprovals.delete(id);
-      return sendMessage(chatId, 'Approved: ' + approval.tool_name + '.' + approval.action_type + ' (' + approval.agent_role + ')');
-    }
-
-    case '/omega-deny': case '/odeny': {
-      if (!args) return sendMessage(chatId, 'Usage: /omega-deny [approval_id] [reason]');
-      const parts = args.split(' ');
-      const id = parts[0];
-      const reason = parts.slice(1).join(' ') || 'no reason given';
-      const approval = pendingApprovals.get(id);
-      if (!approval) return sendMessage(chatId, 'Approval ID not found: ' + id);
-      logAudit('denial', approval.tool_name, approval.agent_role, 'high', 'denied: ' + reason, 'denied');
-      pendingApprovals.delete(id);
-      return sendMessage(chatId, 'Denied: ' + approval.tool_name + '.' + approval.action_type + ' (' + reason + ')');
-    }
-
-    case '/omega-pending': case '/opending': {
-      if (pendingApprovals.size === 0) return sendMessage(chatId, 'No pending approvals.');
-      const lines = [];
-      for (const [id, a] of pendingApprovals) {
-        lines.push(id + ' | ' + a.tool_name + '.' + a.action_type + ' | ' + a.agent_role);
-      }
-      return sendMessage(chatId, 'Pending Approvals (' + pendingApprovals.size + ')\n\n' + lines.join('\n'));
-    }
-
-    case '/omega-audit': case '/oaudit': {
-      if (auditLog.length === 0) return sendMessage(chatId, 'No audit entries.');
-      const lines = auditLog.slice(0, 10).map(e =>
-        e.id + ' | ' + e.event_type + ' | ' + e.tool_name + ' | ' + e.agent_role + ' | ' + e.risk_level
-      );
-      return sendMessage(chatId, 'Audit Log (last ' + Math.min(10, auditLog.length) + ')\n\n' + lines.join('\n'));
-    }
-
-    case '/omega-help': case '/ohelp': {
-      return sendMessage(chatId,
-        'OMEGA Commander AI v2.1.0 — HELP\n\n' +
-        'SYSTEM:\n/omega-ai /omega-agents /omega-audit\n\n' +
-        'ACTIONS:\n/omega-route [msg]\n/omega-execute [tool.action] [agent]\n/omega-pending\n/omega-approve [id]\n/omega-deny [id]\n\n' +
-        'Or just type a natural message and I will respond with AI powered by Groq.');
-    }
-
-    default: {
-      return sendMessage(chatId, 'Unknown command: ' + cmd + '. Type /omega-help for all commands.');
-    }
+    default:
+      return sendMessage(chatId, 'Unknown command. Type /omega-help or just tell me what you need.');
   }
 }
 
-// ============ TELEGRAM POLLING ============
+// ============ POLLING ============
 let polling = false;
 let pollErrors = 0;
 
 async function startPolling() {
   if (polling) return;
   polling = true;
-  console.log('[OMEGA] Starting Telegram polling...');
-  console.log('[OMEGA] Resuming from update ID:', lastUpdateId);
+  console.log('[OMEGA] v3.0 polling started, resuming from update ID:', lastUpdateId);
 
   async function poll() {
     try {
       const res = await axios.get(`${TELEGRAM_API}/getUpdates`, {
-        params: { offset: lastUpdateId + 1, timeout: 30, limit: 10 },
-        timeout: 35000,
+        params: { offset: lastUpdateId + 1, timeout: 30, limit: 10 }, timeout: 35000
       });
 
       if (res.data.ok && res.data.result.length > 0) {
         pollErrors = 0;
         for (const update of res.data.result) {
           lastUpdateId = update.update_id;
-
           if (update.message && update.message.text) {
             const msgId = update.message.message_id;
             const chatId = update.message.chat.id;
             const msgText = update.message.text;
 
-            if (processedMessages.has(msgId)) {
-              console.log('[OMEGA] Skipping duplicate:', msgId);
-              continue;
-            }
-
+            if (processedMessages.has(msgId)) continue;
             const msgAge = Date.now() / 1000 - update.message.date;
-            if (msgAge > 60) {
-              console.log('[OMEGA] Skipping old msg (' + Math.round(msgAge) + 's):', msgText.substring(0, 50));
-              markProcessed(msgId);
-              continue;
-            }
-
+            if (msgAge > 60) { markProcessed(msgId); continue; }
             markProcessed(msgId);
-            console.log('[OMEGA] Message:', msgText);
+
+            console.log('[OMEGA] Message:', msgText.substring(0, 80));
 
             if (msgText.startsWith('/')) {
               await handleCommand(chatId, msgText);
             } else {
-              // AI-powered response using standing orders
-              const reply = await generateAIResponse(msgText);
+              // AI with real tool execution
+              const reply = await thinkWithTools(msgText);
               await sendMessage(chatId, reply);
             }
           }
@@ -407,64 +469,48 @@ async function startPolling() {
       }
     } catch (e) {
       pollErrors++;
-      console.error('[OMEGA] Poll error (' + pollErrors + '):', e.message);
-      if (pollErrors > 10) { pollErrors = 0; }
+      console.error('[OMEGA] Poll error:', e.message);
+      if (pollErrors > 10) pollErrors = 0;
     }
     setTimeout(poll, 2000);
   }
-
   poll();
 }
 
-// ============ ALERT ENDPOINT ============
-app.post('/alert', async (req, res) => {
-  try {
-    const { tool_name, action_type, risk_level, triggered_by_agent, approval_id, message } = req.body;
-    const alertText = [
-      'OMEGA Approval Required',
-      'Tool: ' + (tool_name || '?'),
-      'Action: ' + (action_type || '?'),
-      'Risk: ' + (risk_level || 'medium'),
-      'Agent: ' + (triggered_by_agent || 'system'),
-      'ID: ' + (approval_id || 'N/A'),
-      '',
-      message || 'Approve or deny this action.',
-      '',
-      'Reply /omega-approve ' + (approval_id || '') + ' to approve',
-    ].join('\n');
-    await sendMessage(OWNER_CHAT_ID, alertText);
-    res.json({ ok: true, sent_to: OWNER_CHAT_ID, channel: 'telegram' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ============ HEALTH ============
+// ============ API ENDPOINTS ============
 app.get('/', (req, res) => {
-  res.json({
-    name: 'OMEGA Commander AI', version: '2.1.0', status: 'operational',
-    bot: '@Omegacommanderaibot', uptime: process.uptime(), polling: polling,
-    last_update_id: lastUpdateId, pending_approvals: pendingApprovals.size,
-    audit_entries: auditLog.length, ai_model: GROQ_MODEL, timestamp: new Date().toISOString(),
-  });
+  res.json({ name: 'OMEGA Commander AI', version: '3.0.0', status: 'operational', bot: '@Omegacommanderaibot',
+    uptime: process.uptime(), polling, last_update_id: lastUpdateId, tools: 10, ai_model: GROQ_MODEL, timestamp: new Date().toISOString() });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), polling: polling, version: '2.1.0', ai: true });
+  res.json({ status: 'ok', uptime: process.uptime(), polling, version: '3.0.0', ai: true, tools: 10 });
+});
+
+app.post('/execute', async (req, res) => {
+  try {
+    const { tool, args } = req.body;
+    const result = await executeTool(tool, args || {});
+    res.json({ ok: true, tool, result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/alert', async (req, res) => {
+  try {
+    const { message, tool_name, action_type, risk_level } = req.body;
+    await sendMessage(OWNER_CHAT_ID, 'OMEGA Alert: ' + (tool_name || '') + ' ' + (action_type || '') + '\nRisk: ' + (risk_level || 'medium') + '\n' + (message || ''));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ============ START ============
 app.listen(PORT, async () => {
-  console.log('[OMEGA] Commander AI v2.1.0 starting on port ' + PORT);
-  console.log('[OMEGA] Bot: @Omegacommanderaibot');
+  console.log('[OMEGA] v3.0 starting on port ' + PORT);
   console.log('[OMEGA] AI: Groq ' + GROQ_MODEL);
-  console.log('[OMEGA] Resuming from update ID:', lastUpdateId);
+  console.log('[OMEGA] Tools: 10 real execution tools');
   await startPolling();
   if (process.uptime() < 5) {
-    await sendMessage(OWNER_CHAT_ID,
-      'OMEGA Commander AI v2.1.0 — Online\n\nStanding orders loaded. AI enabled (Groq ' + GROQ_MODEL + ').\n9 agents ready, polling active.\n\nType /omega-help or just talk to me.');
-  } else {
-    console.log('[OMEGA] Sleep/wake — skipping startup msg');
+    await sendMessage(OWNER_CHAT_ID, 'OMEGA Commander v3.0 — Online\n\nReal execution engine active.\n10 tools: GitHub, Base44, service checks, Telegram, AI.\n\nJust tell me what to do.');
   }
-  console.log('[OMEGA] Startup complete — polling + AI active');
+  console.log('[OMEGA] Startup complete');
 });
